@@ -11,7 +11,7 @@ import {
   ScrollView,
   RefreshControl,
   Pressable,
-  Dimensions, // Screen width lene ke liye
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +25,8 @@ import { VideoCardSkeleton } from '@/components/SkeletonLoader';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const VIDEO_CATEGORIES = [
+// Ye Filters hain, Category nahi
+const VIDEO_FILTERS = [
   { id: 'all', label: 'All', icon: BarChart2 },
   { id: 'trending', label: 'Trending', icon: TrendingUp },
   { id: 'hot', label: 'Hot', icon: Flame },
@@ -97,7 +98,7 @@ const VideoCard = React.memo(({ video, index }: { video: VideoType; index: numbe
               {video.title || 'Untitled Video'}
             </Text>
             
-            {/* Single Line Metadata: Channel • Views • Time */}
+            {/* Metadata Row */}
             <View style={styles.metaDataRow}>
                 <Text style={styles.metaText} numberOfLines={1}>
                   {channelName}
@@ -109,8 +110,6 @@ const VideoCard = React.memo(({ video, index }: { video: VideoType; index: numbe
                 </Text>
             </View>
         </View>
-
-        {/* Optional: 3 Dots Menu could go here */}
       </View>
     </TouchableOpacity>
   );
@@ -121,30 +120,46 @@ export default function VideosScreen() {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const insets = useSafeAreaInsets();
 
+  // --- API CALL FIX ---
+  // Ham ab 'selectedFilter' backend ko nahi bhej rahe.
+  // Ham sirf page aur limit bhej rahe hain taaki sare videos aa jayein.
   const { 
     data: videosData, 
     isLoading, 
     refetch,
     isRefetching,
   } = useQuery({
-    queryKey: ['videos', selectedFilter],
+    queryKey: ['videos', 'feed'], 
     queryFn: async () => {
-      const response = await api.videos.getVideos(1, 20, selectedFilter); 
+      // API call without category filter
+      const response = await api.videos.getVideos(1, 20); 
       return response;
     },
   });
 
   const videos = videosData?.videos || [];
 
+  // --- CLIENT SIDE SORTING ---
+  // Data aane ke baad ham phone par sort karenge
   const displayVideos = useMemo(() => {
+    if (!videos.length) return [];
+    
+    // Create a copy to sort
     let sorted = [...videos];
+
     if (selectedFilter === 'trending') {
+       // Sort by Views (High to Low)
        sorted.sort((a, b) => ((b.views || 0) - (a.views || 0)));
     } else if (selectedFilter === 'hot') {
-       sorted = sorted.filter(v => (v.viral_score || 0) > 50);
+       // Filter by Viral Score
+       const hotVideos = sorted.filter(v => (v.viral_score || 0) > 50);
+       // Agar hot videos nahi hain, to fallback me trending dikha do
+       sorted = hotVideos.length > 0 ? hotVideos : sorted; 
     } else if (selectedFilter === 'recent') {
+       // Sort by Date (Newest First)
        sorted.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     }
+    
     return sorted;
   }, [videos, selectedFilter]);
 
@@ -162,9 +177,10 @@ export default function VideosScreen() {
         )}
       </View>
 
+      {/* Filter Tabs */}
       <View style={styles.filterRow}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContent}>
-          {VIDEO_CATEGORIES.map((filter) => {
+          {VIDEO_FILTERS.map((filter) => {
             const IconComponent = filter.icon;
             const isActive = selectedFilter === filter.id;
             return (
@@ -186,20 +202,20 @@ export default function VideosScreen() {
           data={[1, 2, 3, 4, 5]}
           keyExtractor={(item) => `skeleton-${item}`}
           renderItem={() => <VideoCardSkeleton />}
-          contentContainerStyle={{ paddingBottom: 100 }} // No padding horizontal for skeletons in this style usually
+          contentContainerStyle={{ paddingBottom: 100 }}
         />
       ) : (
         <FlatList
           data={displayVideos}
           keyExtractor={(item) => item.id || Math.random().toString()}
           renderItem={({ item, index }) => <VideoCard video={item} index={index} />}
-          // IMPORTANT: Removed paddingHorizontal to make it full width
           contentContainerStyle={styles.videosList}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No videos found</Text>
+              <Text style={styles.emptySubtext}>Be the first to upload!</Text>
             </View>
           }
         />
@@ -272,15 +288,14 @@ const styles = StyleSheet.create({
   // --- YOUTUBE STYLE LIST ---
   videosList: {
     paddingBottom: 100,
-    paddingHorizontal: 0, // Zero padding for edge-to-edge look
-    paddingTop: 8,
+    paddingTop: 0,
   },
   videoCard: {
-    marginBottom: 24, // Space between videos
+    marginBottom: 24,
     backgroundColor: Colors.background,
   },
   thumbnailContainer: {
-    width: SCREEN_WIDTH, // Full Width
+    width: SCREEN_WIDTH,
     height: SCREEN_WIDTH * 0.5625, // 16:9 Aspect Ratio
     backgroundColor: Colors.surface,
     position: 'relative',
@@ -317,7 +332,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   videoDetailsColumn: {
-    flex: 1, // Takes remaining space
+    flex: 1,
     gap: 4,
   },
   videoTitle: {
@@ -346,5 +361,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.text,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 4,
   },
 });
