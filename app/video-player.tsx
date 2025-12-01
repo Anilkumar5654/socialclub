@@ -8,6 +8,10 @@ import {
   MessageCircle,
   Send,
   ChevronDown,
+  Play,
+  Pause,
+  Maximize,
+  Minimize
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -24,6 +28,8 @@ import {
   Alert,
   Modal,
   Platform,
+  Pressable,
+  StatusBar
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -37,10 +43,16 @@ import { Comment } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPER FUNCTION ---
+// --- HELPER FUNCTIONS ---
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
+};
+
+const formatDuration = (millis: number) => {
+  const minutes = Math.floor(millis / 60000);
+  const seconds = ((millis % 60000) / 1000).toFixed(0);
+  return `${minutes}:${Number(seconds) < 10 ? '0' : ''}${seconds}`;
 };
 
 // --- TYPES ---
@@ -122,7 +134,6 @@ function CommentItem({ comment }: { comment: Comment }) {
   );
 }
 
-// FIXED: RecommendedVideoCard (Removed extra whitespace causing crash)
 function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: () => void }) {
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -130,11 +141,13 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
     return views.toString();
   };
 
-  const channelName = video.channel?.name || video.user?.channel_name || 'Channel Name';
+  const channelName = video.channel?.name || video.user?.channel_name || 'Channel';
+  const channelAvatar = getMediaUrl(video.channel?.avatar || video.user?.avatar || 'assets/c_profile.jpg');
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
 
   return (
-    <TouchableOpacity style={styles.recommendedCard} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity style={styles.recommendedCard} onPress={onPress} activeOpacity={0.9}>
+      {/* 1. Full Width Thumbnail */}
       <View style={styles.recommendedThumbnailContainer}>
         <Image
           source={{ uri: getMediaUrl(video.thumbnail_url || video.thumbnailUrl) }}
@@ -147,20 +160,25 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
           </View>
         )}
       </View>
-      <View style={styles.recommendedInfo}>
-        <Text style={styles.recommendedTitle} numberOfLines={2}>
-          {video.title || 'Untitled'}
-        </Text>
-        <View style={styles.recommendedChannelRow}>
-          <Text style={styles.recommendedChannel} numberOfLines={1}>
-            {channelName}
+
+      {/* 2. Info Row */}
+      <View style={styles.recommendedInfoRow}>
+        <Image source={{ uri: channelAvatar }} style={styles.recommendedAvatar} />
+        
+        <View style={styles.recommendedTextCol}>
+          <Text style={styles.recommendedTitle} numberOfLines={1}>
+            {video.title || 'Untitled'}
           </Text>
-          {/* SAFE RENDERING: Conditional null check to avoid text strings outside <Text> */}
-          {isVerified ? <Text style={styles.recommendedVerified}> ✓</Text> : null}
+          
+          <Text style={styles.recommendedMeta} numberOfLines={1}>
+            {channelName}
+            {isVerified ? ' ✓' : ''} 
+            {' · '}
+            {formatViews(video.views || 0)} views
+            {' · '}
+            {formatTimeAgo(video.created_at || video.timestamp)}
+          </Text>
         </View>
-        <Text style={styles.recommendedStats}>
-          {formatViews(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
-        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -175,6 +193,9 @@ export default function VideoPlayerScreen() {
   const videoRef = useRef<ExpoVideo>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
+  const [showControls, setShowControls] = useState(false);
+  const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
+
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -182,10 +203,12 @@ export default function VideoPlayerScreen() {
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [commentText, setCommentText] = useState('');
+  
   const [videoDuration, setVideoDuration] = useState(0);
+  const [currentPosition, setCurrentPosition] = useState(0);
   const hasTrackedView = useRef(false);
 
-  // Watch Time Tracker Hook
+  // Watch Time Tracker
   const { stopTracking, pauseTracking, resumeTracking } = useWatchTimeTracker({
     videoId: videoId || '',
     videoType: 'video',
@@ -245,19 +268,16 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
-  // View Tracking (Fixed with Device ID)
+  // View Tracking
   useEffect(() => {
     if (video && !hasTrackedView.current && videoId) {
       const trackView = async () => {
         try {
-          // Fix: Ensure device_id is passed as per API docs
           const deviceId = await getDeviceId();
-          // Assuming api.videos.view accepts (videoId, deviceId) or similar. 
-          // If strict, we pass deviceId to ensure backend validates it.
           await api.videos.view(videoId, deviceId);
           hasTrackedView.current = true;
         } catch (err) {
-          console.log('[VideoPlayer] View tracking skipped/failed');
+           console.log('View track fail');
         }
       };
       trackView();
@@ -267,6 +287,19 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     return () => stopTracking();
   }, [stopTracking]);
+
+  // Controls Auto Hide Logic
+  useEffect(() => {
+    if (showControls) {
+      if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+      controlsTimeout.current = setTimeout(() => {
+        if (isPlaying) setShowControls(false);
+      }, 3000); // Hide after 3 seconds
+    }
+    return () => {
+      if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
+    };
+  }, [showControls, isPlaying]);
 
   // Mutations
   const likeMutation = useMutation({
@@ -302,68 +335,61 @@ export default function VideoPlayerScreen() {
   // Handlers
   const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (status.isLoaded) {
-      const wasPlaying = isPlaying;
-      const nowPlaying = status.isPlaying;
-      setIsPlaying(nowPlaying);
-
-      if (wasPlaying && !nowPlaying) pauseTracking();
-      else if (!wasPlaying && nowPlaying) resumeTracking();
-
+      setIsPlaying(status.isPlaying);
       if (status.durationMillis) setVideoDuration(status.durationMillis);
-      if (status.didJustFinish) stopTracking();
+      if (status.positionMillis) setCurrentPosition(status.positionMillis);
+      
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setShowControls(true);
+        stopTracking();
+      }
     }
-  }, [isPlaying, pauseTracking, resumeTracking, stopTracking]);
+  }, [stopTracking]);
 
-  const handleLike = useCallback(() => {
-    if (isDisliked) setIsDisliked(false);
-    likeMutation.mutate();
-  }, [isDisliked, likeMutation]);
-
-  const handleDislike = useCallback(() => {
-    if (isLiked) {
-      setIsLiked(false);
-      setLikes(l => l - 1);
+  const togglePlayPause = async () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      await videoRef.current.pauseAsync();
+      pauseTracking();
+      setShowControls(true); // Show controls when paused
+    } else {
+      await videoRef.current.playAsync();
+      resumeTracking();
+      // Controls will auto-hide via useEffect
     }
-    setIsDisliked(!isDisliked);
-  }, [isLiked, isDisliked]);
+  };
 
-  const handleSubscribe = useCallback(() => subscribeMutation.mutate(), [subscribeMutation]);
+  const handleScreenTap = () => {
+    setShowControls(prev => !prev);
+  };
 
-  const handleAddComment = useCallback(() => {
-    if (!commentText.trim()) return;
-    commentMutation.mutate(commentText.trim());
-  }, [commentText, commentMutation]);
-
-  const handleShare = useCallback(async () => {
-    const shareUrl = `https://www.moviedbr.com/video/${videoId}`;
+  // Standard Action Handlers
+  const handleLike = () => { if (isDisliked) setIsDisliked(false); likeMutation.mutate(); };
+  const handleDislike = () => { if (isLiked) { setIsLiked(false); setLikes(l => l - 1); } setIsDisliked(!isDisliked); };
+  const handleSubscribe = () => subscribeMutation.mutate();
+  const handleAddComment = () => { if (commentText.trim()) commentMutation.mutate(commentText.trim()); };
+  
+  const handleShare = async () => {
     try { await api.videos.share(videoId || ''); } catch {}
-    Alert.alert('Share', shareUrl);
-  }, [videoId]);
+    Alert.alert('Share', `https://www.moviedbr.com/video/${videoId}`);
+  };
 
-  const handleWhatsAppShare = useCallback(async () => {
-    const videoUrl = `https://www.moviedbr.com/video/${videoId}`;
-    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(`Check out this video: ${videoUrl}`)}`;
-    try {
-      const supported = await Linking.canOpenURL(whatsappUrl);
-      if (supported) await Linking.openURL(whatsappUrl);
-      else Alert.alert('Error', 'WhatsApp not installed');
-    } catch {
-      Alert.alert('Error', 'Failed to open WhatsApp');
-    }
-  }, [videoId]);
+  const handleWhatsAppShare = async () => {
+    const url = `whatsapp://send?text=${encodeURIComponent(`Check out this video: https://www.moviedbr.com/video/${videoId}`)}`;
+    try { await Linking.openURL(url); } catch { Alert.alert('Error', 'WhatsApp not installed'); }
+  };
 
-  const handleChannelPress = useCallback(() => {
+  const handleChannelPress = () => {
     const targetUserId = channel?.user_id || video?.user?.id;
-    if (targetUserId) {
-      router.push({ pathname: '/user/[userId]', params: { userId: targetUserId } });
-    }
-  }, [channel?.user_id, video?.user?.id]);
+    if (targetUserId) router.push({ pathname: '/user/[userId]', params: { userId: targetUserId } });
+  };
 
-  const handleRecommendedPress = useCallback((recVideoId: string) => {
+  const handleRecommendedPress = (recVideoId: string) => {
     hasTrackedView.current = false;
     stopTracking();
     router.setParams({ videoId: recVideoId });
-  }, [stopTracking]);
+  };
 
   const formatViewsDisplay = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -371,7 +397,7 @@ export default function VideoPlayerScreen() {
     return views.toString();
   };
 
-  if (isLoadingVideo) {
+  if (isLoadingVideo || !video) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -380,43 +406,58 @@ export default function VideoPlayerScreen() {
     );
   }
 
-  if (!video) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <Text style={styles.errorText}>Video not found</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
-          <Text style={styles.retryButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
   const channelName = channel?.name || video.channel?.name || video.user?.channel_name || 'Channel';
-  
-  // LOGIC FIX: Fallback to assets/c_profile.jpg ONLY if no real channel/user avatar
   const channelAvatar = getMediaUrl(channel?.avatar || video.channel?.avatar || 'assets/c_profile.jpg');
-  
   const subscriberCount = channel?.subscribers_count ?? video.channel?.subscribers_count ?? 0;
   const isChannelVerified = channel?.is_verified || video.channel?.is_verified || false;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle="light-content" />
 
-      {/* STICKY VIDEO PLAYER CONTAINER */}
+      {/* --- CUSTOM VIDEO PLAYER --- */}
       <View style={styles.playerContainer}>
         <ExpoVideo
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.player}
           resizeMode={ResizeMode.CONTAIN}
-          useNativeControls={true} // Using Native Controls for YouTube-like Seekbar/Fullscreen
-          shouldPlay={isPlaying}
+          useNativeControls={false} // Custom controls enabled
+          shouldPlay={true}
           isLooping={false}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
         />
+
+        {/* Custom Controls Overlay */}
+        <Pressable style={styles.overlayContainer} onPress={handleScreenTap}>
+          {showControls && (
+            <View style={styles.controlsLayer}>
+              {/* Center Play/Pause */}
+              <TouchableOpacity style={styles.centerButton} onPress={togglePlayPause}>
+                {isPlaying ? (
+                  <Pause color="white" size={48} fill="white" />
+                ) : (
+                  <Play color="white" size={48} fill="white" />
+                )}
+              </TouchableOpacity>
+
+              {/* Bottom Bar: Time & Fullscreen */}
+              <View style={styles.bottomControlBar}>
+                <Text style={styles.timeText}>
+                  {formatDuration(currentPosition)} / {formatDuration(videoDuration)}
+                </Text>
+                {/* Visual Progress Bar (Non-interactive for simplicity) */}
+                <View style={styles.progressBarContainer}>
+                   <View style={[styles.progressBarFill, { width: `${(currentPosition / (videoDuration || 1)) * 100}%` }]} />
+                </View>
+                {/* Fullscreen Icon (Visual only as rotation is complex) */}
+                <Maximize color="white" size={20} />
+              </View>
+            </View>
+          )}
+        </Pressable>
       </View>
 
       {/* SCROLLABLE CONTENT */}
@@ -428,7 +469,9 @@ export default function VideoPlayerScreen() {
             {formatViewsDisplay(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
           </Text>
 
+          {/* Action Buttons */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsContainer}>
+            {/* Like: Icon + Text */}
             <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
               <ThumbsUp
                 color={isLiked ? Colors.primary : Colors.text}
@@ -440,28 +483,21 @@ export default function VideoPlayerScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={handleDislike}>
-              <ThumbsDown
-                color={isDisliked ? Colors.primary : Colors.text}
-                fill={isDisliked ? Colors.primary : 'transparent'}
-                size={22}
-              />
-              <Text style={[styles.actionText, isDisliked && styles.actionTextActive]}>Dislike</Text>
+            {/* Others: Icon Only */}
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleDislike}>
+              <ThumbsDown color={isDisliked ? Colors.primary : Colors.text} size={22} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={() => setShowCommentsModal(true)}>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={() => setShowCommentsModal(true)}>
               <MessageCircle color={Colors.text} size={22} />
-              <Text style={styles.actionText}>{comments.length}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={handleWhatsAppShare}>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleWhatsAppShare}>
               <Send color={Colors.text} size={22} />
-              <Text style={styles.actionText}>WhatsApp</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleShare}>
               <Share2 color={Colors.text} size={22} />
-              <Text style={styles.actionText}>Share</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -544,7 +580,6 @@ export default function VideoPlayerScreen() {
               <Text style={styles.modalCloseButton}>Done</Text>
             </TouchableOpacity>
           </View>
-
           <View style={styles.addCommentContainer}>
             <TextInput
               style={styles.commentInput}
@@ -555,30 +590,16 @@ export default function VideoPlayerScreen() {
               multiline
             />
             {commentText.trim().length > 0 && (
-              <TouchableOpacity
-                style={styles.commentPostButton}
-                onPress={handleAddComment}
-                disabled={commentMutation.isPending}
-              >
-                {commentMutation.isPending ? (
-                  <ActivityIndicator size="small" color={Colors.text} />
-                ) : (
-                  <Text style={styles.commentPostButtonText}>Post</Text>
-                )}
+              <TouchableOpacity style={styles.commentPostButton} onPress={handleAddComment}>
+                <Text style={styles.commentPostButtonText}>Post</Text>
               </TouchableOpacity>
             )}
           </View>
-
           <FlatList
             data={comments}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => <CommentItem comment={item} />}
             contentContainerStyle={styles.commentsList}
-            ListEmptyComponent={
-              <View style={styles.emptyComments}>
-                <Text style={styles.emptyCommentsText}>No comments yet. Be the first!</Text>
-              </View>
-            }
           />
         </View>
       </Modal>
@@ -588,364 +609,98 @@ export default function VideoPlayerScreen() {
 
 // --- STYLES ---
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-  },
-  errorText: {
-    fontSize: 16,
-    color: Colors.error,
-    marginBottom: 16,
-  },
-  retryButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 20,
-  },
-  retryButtonText: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: '600' as const,
-  },
-  playerContainer: {
-    width: SCREEN_WIDTH,
-    aspectRatio: 16 / 9,
-    backgroundColor: '#000',
-  },
-  player: {
-    width: '100%',
-    height: '100%',
-  },
-  videoDetails: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  videoTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  videoStats: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 16,
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingRight: 16,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-  },
-  actionText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  actionTextActive: {
-    color: Colors.primary,
-  },
-  channelContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  channelInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  channelAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surface,
-  },
-  channelDetails: {
-    flex: 1,
-  },
-  channelNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  channelName: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  verifiedBadge: {
-    color: Colors.info,
-    fontSize: 13,
-  },
-  subscriberCount: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  subscribeButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    backgroundColor: Colors.primary,
-  },
-  subscribedButton: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  subscribeText: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  subscribedText: {
-    color: Colors.textSecondary,
-  },
-  descriptionContainer: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  descriptionText: {
-    fontSize: 14,
-    color: Colors.text,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  showMoreButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  showMoreText: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.textSecondary,
-  },
-  commentsPreview: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  commentsTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 12,
-  },
-  commentPreviewItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  commentPreviewAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.surface,
-  },
-  commentPreviewText: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-  },
-  recommendedSection: {
-    padding: 16,
-  },
-  recommendedSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 16,
-  },
-  recommendedCard: {
-    marginBottom: 16,
-  },
-  recommendedThumbnailContainer: {
-    position: 'relative',
-    width: '100%',
-    aspectRatio: 16 / 9,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 10,
-    backgroundColor: Colors.surface,
-  },
-  recommendedThumbnail: {
-    width: '100%',
-    height: '100%',
-  },
-  recommendedDuration: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  recommendedDurationText: {
-    color: Colors.text,
-    fontSize: 12,
-    fontWeight: '600' as const,
-  },
-  recommendedInfo: {
-    gap: 4,
-  },
-  recommendedTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
-    lineHeight: 18,
-  },
-  recommendedChannelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  recommendedChannel: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '500' as const,
-  },
-  recommendedVerified: {
-    color: Colors.info,
-    fontSize: 11,
-  },
-  recommendedStats: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  modalCloseButton: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: Colors.primary,
-  },
-  addCommentContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  commentInput: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors.text,
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 40,
-    maxHeight: 100,
-  },
-  commentPostButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: Colors.primary,
-    borderRadius: 20,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  commentPostButtonText: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.text,
-  },
-  commentsList: {
-    padding: 16,
-  },
-  emptyComments: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyCommentsText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-  },
-  commentItem: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    gap: 12,
-  },
-  commentAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-  },
-  commentContent: {
-    flex: 1,
-  },
-  commentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  commentUsername: {
-    fontSize: 14,
-    fontWeight: '600' as const,
-    color: Colors.text,
-  },
-  commentTime: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  commentText: {
-    fontSize: 14,
-    color: Colors.text,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  commentLikeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  commentLikeText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  centerContent: { justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
+  errorText: { fontSize: 16, color: Colors.error, marginBottom: 16 },
+  retryButton: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
+  retryButtonText: { color: Colors.text, fontSize: 15, fontWeight: '600' },
+  
+  // Custom Player Styles
+  playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16 / 9, backgroundColor: '#000', position: 'relative' },
+  player: { width: '100%', height: '100%' },
+  overlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
+  controlsLayer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent', justifyContent: 'center', alignItems: 'center' }, // Transparent BG requested
+  centerButton: { padding: 20 },
+  bottomControlBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', padding: 10,
+    backgroundColor: 'transparent' // Transparent
+  },
+  timeText: { color: 'white', fontSize: 12, marginRight: 10, fontWeight: '600' },
+  progressBarContainer: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', marginRight: 10, borderRadius: 2 },
+  progressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
+
+  // Video Details
+  videoDetails: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  videoTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, lineHeight: 24, marginBottom: 8 },
+  videoStats: { fontSize: 14, color: Colors.textSecondary, marginBottom: 16 },
+  
+  // Actions
+  actionsContainer: { flexDirection: 'row', gap: 12, paddingRight: 16 },
+  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: Colors.surface },
+  actionButtonIconOnly: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
+  actionText: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  actionTextActive: { color: Colors.primary },
+
+  // Channel
+  channelContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  channelInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  channelAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
+  channelDetails: { flex: 1 },
+  channelNameRow: { flexDirection: 'row', alignItems: 'center' },
+  channelName: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  verifiedBadge: { color: Colors.info, fontSize: 13 },
+  subscriberCount: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
+  subscribeButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: Colors.primary },
+  subscribedButton: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+  subscribeText: { fontSize: 14, fontWeight: '700', color: Colors.text },
+  subscribedText: { color: Colors.textSecondary },
+
+  // Description & Comments
+  descriptionContainer: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  descriptionText: { fontSize: 14, color: Colors.text, lineHeight: 20, marginBottom: 8 },
+  showMoreButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  showMoreText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  commentsPreview: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  commentsTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  commentPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  commentPreviewAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.surface },
+  commentPreviewText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 18 },
+
+  // Recommended Section (Full Width)
+  recommendedSection: { paddingBottom: 20 },
+  recommendedSectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginHorizontal: 16, marginVertical: 16 },
+  recommendedCard: { marginBottom: 20, backgroundColor: Colors.background },
+  recommendedThumbnailContainer: { width: SCREEN_WIDTH, height: SCREEN_WIDTH * 0.5625, backgroundColor: Colors.surface, position: 'relative' },
+  recommendedThumbnail: { width: '100%', height: '100%' },
+  recommendedDuration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0, 0, 0, 0.85)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  recommendedDurationText: { color: Colors.text, fontSize: 12, fontWeight: '600' },
+  recommendedInfoRow: { flexDirection: 'row', padding: 12, gap: 12 },
+  recommendedAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface },
+  recommendedTextCol: { flex: 1, justifyContent: 'center', gap: 4 },
+  recommendedTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, lineHeight: 20 },
+  recommendedMeta: { fontSize: 12, color: Colors.textSecondary, lineHeight: 16 },
+
+  // Modal
+  modalContainer: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  modalCloseButton: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  addCommentContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  commentInput: { flex: 1, fontSize: 14, color: Colors.text, backgroundColor: Colors.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, minHeight: 40, maxHeight: 100 },
+  commentPostButton: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: Colors.primary, borderRadius: 20, minWidth: 60, alignItems: 'center' },
+  commentPostButtonText: { fontSize: 14, fontWeight: '700', color: Colors.text },
+  commentsList: { padding: 16 },
+  emptyComments: { paddingVertical: 40, alignItems: 'center' },
+  emptyCommentsText: { fontSize: 14, color: Colors.textSecondary },
+  commentItem: { flexDirection: 'row', marginBottom: 16, gap: 12 },
+  commentAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface },
+  commentContent: { flex: 1 },
+  commentHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  commentUsername: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  commentTime: { fontSize: 12, color: Colors.textMuted },
+  commentText: { fontSize: 14, color: Colors.text, lineHeight: 20, marginBottom: 8 },
+  commentLikeButton: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  commentLikeText: { fontSize: 13, color: Colors.textSecondary },
 });
