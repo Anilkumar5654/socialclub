@@ -1,7 +1,7 @@
 import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
-import { router, useFocusEffect } from 'expo-router'; // IMPORTANT: useFocusEffect added
+import { router, useFocusEffect } from 'expo-router';
 import {
   Heart,
   MessageCircle,
@@ -31,7 +31,6 @@ import {
   Alert,
   ScrollView,
   Pressable,
-  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -43,7 +42,7 @@ import { Reel } from '@/types';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- COMMENTS SHEET COMPONENT ---
+// --- HELPER: COMMENTS SHEET ---
 function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose: () => void; reelId: string }) {
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState('');
@@ -64,10 +63,18 @@ function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose
     },
   });
 
+  const getMediaUri = (uri: string | undefined) => {
+    if (!uri) return '';
+    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" transparent>
       <View style={styles.modalOverlay}>
-        <KeyboardAvoidingView style={[styles.commentsContainer, { paddingBottom: insets.bottom }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView 
+          style={[styles.commentsContainer, { paddingBottom: insets.bottom }]} 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={styles.commentsHeader}>
             <Text style={styles.commentsTitle}>Comments</Text>
             <TouchableOpacity onPress={onClose}><Text style={{color: Colors.primary}}>Close</Text></TouchableOpacity>
@@ -76,7 +83,7 @@ function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose
             <ScrollView contentContainerStyle={{padding: 16}}>
               {(commentsData?.comments || []).map((c: any) => (
                 <View key={c.id} style={styles.commentRow}>
-                  <Image source={{ uri: c.user?.avatar ? `${MEDIA_BASE_URL}/${c.user.avatar}` : '' }} style={styles.commentAvatar} />
+                  <Image source={{ uri: getMediaUri(c.user?.avatar) }} style={styles.commentAvatar} />
                   <View style={{flex:1}}>
                     <Text style={styles.commentAuthor}>{c.user?.username}</Text>
                     <Text style={styles.commentBody}>{c.content}</Text>
@@ -86,7 +93,13 @@ function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose
             </ScrollView>
           )}
           <View style={styles.commentComposer}>
-            <TextInput style={styles.commentInput} placeholder="Add a comment..." placeholderTextColor="#888" value={commentText} onChangeText={setCommentText} />
+            <TextInput 
+              style={styles.commentInput} 
+              placeholder="Add a comment..." 
+              placeholderTextColor="#888" 
+              value={commentText} 
+              onChangeText={setCommentText} 
+            />
             <TouchableOpacity onPress={() => submitComment(commentText.trim())} disabled={!commentText.trim() || isPending}>
               <Text style={styles.commentSendText}>Post</Text>
             </TouchableOpacity>
@@ -97,19 +110,19 @@ function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose
   );
 }
 
-// --- REEL ITEM COMPONENT ---
+// --- MAIN REEL ITEM ---
 
 interface ReelItemProps {
   reel: Reel;
   isActive: boolean;
-  isScreenFocused: boolean; // NEW PROP
+  isScreenFocused: boolean;
 }
 
 function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   const queryClient = useQueryClient();
   const videoRef = useRef<ExpoVideo>(null);
   
-  // States
+  // Interaction States
   const [isLiked, setIsLiked] = useState(reel.isLiked);
   const [likes, setLikes] = useState(reel.likes);
   const [isMuted, setIsMuted] = useState(false);
@@ -117,12 +130,30 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [showPlayIcon, setShowPlayIcon] = useState(false);
   
-  // Subscribe/Follow Logic
-  const channelId = reel.channel?.id || reel.user?.channel_id;
-  const initialSubState = reel.isSubscribed || false; // Assuming API returns this
-  const [isSubscribed, setIsSubscribed] = useState(initialSubState);
+  // --- NEW LOGIC: Channel vs User ---
+  // API returns 'channel' object if user has one
+  const hasChannel = !!reel.channel;
+  
+  // Data Mapping (Prioritize Channel Info)
+  const channelId = reel.channel?.id;
+  const targetId = hasChannel ? reel.channel?.id : reel.user.id;
+  const displayName = hasChannel ? reel.channel?.name : (reel.user?.name || reel.user?.username);
+  
+  const getMediaUri = (uri: string | undefined) => {
+    if (!uri) return '';
+    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+  };
 
-  // Watch Time Tracking Refs
+  const avatarUrl = getMediaUri(
+    hasChannel ? reel.channel?.avatar : (reel.user?.avatar || 'assets/c_profile.jpg')
+  );
+
+  const videoUrl = getMediaUri(reel.videoUrl || (reel as any).video_url);
+
+  // Subscribe State (API sends 'isSubscribed' which handles both sub/follow logic backend side)
+  const [isSubscribed, setIsSubscribed] = useState(reel.isSubscribed || false);
+
+  // Watch Time Tracking
   const watchTimeRef = useRef(0);
   const startTimeRef = useRef(0);
   const durationRef = useRef(0);
@@ -131,10 +162,7 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   // Animation
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // --- PLAYBACK LOGIC (CRITICAL FIX FOR BACKGROUND AUDIO) ---
-  // Video sirf tab chalega jab:
-  // 1. isActive = true (List me video screen par hai)
-  // 2. isScreenFocused = true (User Reels tab par hi hai)
+  // --- PLAYBACK EFFECT ---
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -143,7 +171,6 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
       startTimeRef.current = Date.now();
     } else {
       videoRef.current.pauseAsync();
-      // Track view when pausing or scrolling away
       trackViewSession();
     }
   }, [isActive, isScreenFocused]);
@@ -153,15 +180,14 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     
     const sessionTime = (Date.now() - startTimeRef.current) / 1000;
     watchTimeRef.current += sessionTime;
-    startTimeRef.current = 0; // Reset start time
+    startTimeRef.current = 0;
 
-    // Agar 3 second se jyada dekha aur abhi tak track nahi kiya
+    // Track if watched more than 3 seconds and not tracked yet
     if (watchTimeRef.current > 3 && !hasTrackedView.current) {
       const completionRate = Math.min((watchTimeRef.current / durationRef.current) * 100, 100);
       try {
         await api.reels.trackView(reel.id, watchTimeRef.current, completionRate);
-        hasTrackedView.current = true; // Ek session me ek baar track karo
-        console.log('[Reel] View Tracked');
+        hasTrackedView.current = true;
       } catch (e) {
         console.log('[Reel] Tracking failed');
       }
@@ -174,19 +200,22 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     onSuccess: (data) => { setIsLiked(data.isLiked); setLikes(data.likes); }
   });
 
-  const { mutate: handleSubscribe } = useMutation({
+  const { mutate: handleSubscribeAction, isPending: subPending } = useMutation({
     mutationFn: () => {
-      // Agar channel ID hai to Subscribe endpoint, nahi to Follow endpoint
-      if (channelId) {
-        return isSubscribed ? api.channels.unsubscribe(channelId) : api.channels.subscribe(channelId);
+      // Dynamic Logic: Channel -> Subscribe API, User -> Follow API
+      if (hasChannel && channelId) {
+        return isSubscribed 
+          ? api.channels.unsubscribe(channelId) 
+          : api.channels.subscribe(channelId);
       } else {
-        // Fallback to user follow if no channel
-        return api.users.follow(reel.user.id); 
+        return isSubscribed 
+          ? api.users.unfollow(reel.user.id) 
+          : api.users.follow(reel.user.id); 
       }
     },
     onSuccess: () => {
-      setIsSubscribed(!isSubscribed);
-      Alert.alert(isSubscribed ? 'Unsubscribed' : 'Subscribed');
+      const newState = !isSubscribed;
+      setIsSubscribed(newState);
     },
     onError: () => Alert.alert('Error', 'Action failed')
   });
@@ -195,7 +224,7 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     mutationFn: async () => {
       const url = `https://www.moviedbr.com/reels/${reel.id}`;
       await RNShare.share({ message: `Watch this reel: ${url}` });
-      return api.reels.share(reel.id); // API hit after share
+      return api.reels.share(reel.id);
     }
   });
 
@@ -208,22 +237,20 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     toggleLike();
   };
 
-  const getMediaUri = (uri: string | undefined) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+  const handleProfilePress = () => {
+    router.push({ pathname: '/user/[userId]', params: { userId: reel.user.id } });
   };
 
+  // --- SAFE FORMAT COUNT ---
   const formatCount = (count: any) => {
-    const num = Number(count || 0);
+    if (count === undefined || count === null) return "0";
+    const num = Number(count);
+    if (isNaN(num)) return "0";
+    
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
   };
-
-  // Data Prep
-  const videoUrl = getMediaUri(reel.videoUrl || (reel as any).video_url);
-  const avatarUrl = getMediaUri(reel.channel?.avatar || reel.user?.avatar || 'assets/c_profile.jpg');
-  const displayName = reel.channel?.name || reel.user?.channel_name || reel.user?.username || 'User';
 
   return (
     <View style={styles.reelContainer}>
@@ -238,10 +265,10 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.video}
-          resizeMode={ResizeMode.CONTAIN} // 16:9 Fit
+          resizeMode={ResizeMode.CONTAIN} // Fit logic
           isLooping
           isMuted={isMuted}
-          shouldPlay={isActive && isScreenFocused} // KEY FIX
+          shouldPlay={isActive && isScreenFocused}
           onPlaybackStatusUpdate={status => {
             if (status.isLoaded) {
               setIsPlaying(status.isPlaying);
@@ -259,22 +286,34 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
         {isMuted ? <VolumeX color="white" size={20} /> : <Volume2 color="white" size={20} />}
       </TouchableOpacity>
 
-      {/* --- INSTAGRAM LAYOUT UI --- */}
+      {/* --- UI OVERLAY --- */}
       <View style={styles.uiContainer}>
         
         {/* Left Bottom: Info */}
         <View style={styles.leftCol}>
           <View style={styles.userRow}>
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            <Text style={styles.username} numberOfLines={1}>{displayName}</Text>
-            <TouchableOpacity 
-              style={[styles.subBtn, isSubscribed && styles.subBtnActive]} 
-              onPress={() => handleSubscribe()}
-            >
-              <Text style={styles.subText}>{isSubscribed ? 'Subscribed' : 'Subscribe'}</Text>
+            <TouchableOpacity onPress={handleProfilePress}>
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             </TouchableOpacity>
+            
+            <Text style={styles.username} numberOfLines={1}>{displayName}</Text>
+            
+            {/* Dynamic Subscribe/Follow Button */}
+            {!isSubscribed && (
+              <TouchableOpacity 
+                style={styles.subBtn} 
+                onPress={() => handleSubscribeAction()}
+                disabled={subPending}
+              >
+                <Text style={styles.subText}>
+                  {subPending ? '...' : (hasChannel ? 'Subscribe' : 'Follow')}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
+
           <Text style={styles.caption} numberOfLines={2}>{reel.caption}</Text>
+          
           {reel.music && (
             <View style={styles.musicRow}>
               <Music size={12} color="white" />
@@ -330,17 +369,15 @@ export default function ReelsScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
 
-  // Focus Effect to detect tab switching
+  // Tab switching detection
   useFocusEffect(
     useCallback(() => {
-      setIsScreenFocused(true); // Screen focused
-      return () => {
-        setIsScreenFocused(false); // Screen blurred (Navigated away)
-      };
+      setIsScreenFocused(true);
+      return () => setIsScreenFocused(false);
     }, [])
   );
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['reels-feed'],
     queryFn: async () => api.reels.getReels(1, 20),
   });
@@ -355,7 +392,6 @@ export default function ReelsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header moved down slightly */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.headerText}>Reels</Text>
       </View>
@@ -370,7 +406,7 @@ export default function ReelsScreen() {
             <ReelItem 
               reel={item} 
               isActive={index === activeIndex} 
-              isScreenFocused={isScreenFocused} // Pass focus state
+              isScreenFocused={isScreenFocused} 
             />
           )}
           pagingEnabled
@@ -399,7 +435,7 @@ const styles = StyleSheet.create({
   videoWrapper: { flex: 1, justifyContent: 'center', backgroundColor: 'black' },
   video: { width: '100%', height: '100%' },
   centerIcon: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
-  muteBtn: { position: 'absolute', top: 100, right: 20, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
+  muteBtn: { position: 'absolute', top: 100, right: 20, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, zIndex: 15 },
 
   uiContainer: { position: 'absolute', bottom: 20, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 20 : 10 },
   
@@ -408,7 +444,6 @@ const styles = StyleSheet.create({
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'white', marginRight: 10 },
   username: { color: 'white', fontWeight: 'bold', fontSize: 16, marginRight: 10, maxWidth: 120 },
   subBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'white', backgroundColor: 'rgba(0,0,0,0.3)' },
-  subBtnActive: { backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'transparent' },
   subText: { color: 'white', fontSize: 12, fontWeight: '600' },
   caption: { color: 'white', fontSize: 14, marginBottom: 10, textShadowColor: 'black', textShadowRadius: 1 },
   musicRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
@@ -420,7 +455,7 @@ const styles = StyleSheet.create({
   discContainer: { width: 45, height: 45, borderRadius: 25, backgroundColor: '#222', borderWidth: 2, borderColor: '#333', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
   discImg: { width: 30, height: 30, borderRadius: 15 },
 
-  // Comments Modal Styles
+  // Comments Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   commentsContainer: { height: '70%', backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#333' },
