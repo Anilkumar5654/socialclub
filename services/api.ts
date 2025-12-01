@@ -1,7 +1,7 @@
 import { ApiLogger } from '@/app/api-debug';
 
-const API_BASE_URL = 'https://www.moviedbr.com/api';
-const MEDIA_BASE_URL = 'https://www.moviedbr.com/upload';
+const API_BASE_URL = 'https://moviedbr.com/api';
+const MEDIA_BASE_URL = 'https://moviedbr.com/upload';
 
 export interface ApiError {
   message: string;
