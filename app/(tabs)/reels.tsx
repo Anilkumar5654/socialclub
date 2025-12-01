@@ -344,10 +344,17 @@ function ReelItem({ reel, isActive }: ReelItemProps) {
     return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
   };
 
-  const formatCount = (count: number) => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-    return count.toString();
+  // --- FIX APPLIED HERE (CRASH FIXED) ---
+  const formatCount = (count: number | undefined | null) => {
+    if (count === undefined || count === null) return "0";
+    
+    const num = Number(count);
+    if (isNaN(num)) return "0";
+
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    
+    return num.toString();
   };
 
   const videoUrl = getMediaUri(reel.videoUrl || (reel as { video_url?: string }).video_url || '');
