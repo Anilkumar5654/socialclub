@@ -25,7 +25,6 @@ import { VideoCardSkeleton } from '@/components/SkeletonLoader';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Ye Filters hain, Category nahi
 const VIDEO_FILTERS = [
   { id: 'all', label: 'All', icon: BarChart2 },
   { id: 'trending', label: 'Trending', icon: TrendingUp },
@@ -52,14 +51,30 @@ const VideoCard = React.memo(({ video, index }: { video: VideoType; index: numbe
 
   const handleChannelPress = useCallback((e: any) => {
     e.stopPropagation();
+    // Prioritize channel user_id if available, else user.id
     const targetUserId = video.channel?.user_id || video.user?.id;
     if (targetUserId) {
       router.push({ pathname: '/user/[userId]', params: { userId: targetUserId } });
     }
   }, [video.channel?.user_id, video.user?.id]);
 
-  const channelName = video.channel?.name || video.user?.channel_name || 'Channel';
-  const channelAvatar = getMediaUri(video.channel?.avatar || video.user?.avatar || 'assets/c_profile.jpg');
+  // --- LOGIC: Channel Name Priority ---
+  // 1. API se aya naya 'channel' object ka name
+  // 2. User object ke andar ka channel_name
+  // 3. Fallback to User Name
+  const channelName = 
+    video.channel?.name || 
+    video.user?.channel_name || 
+    video.user?.name || 
+    'Unknown Channel';
+
+  // --- LOGIC: Avatar Priority ---
+  const channelAvatar = getMediaUri(
+    video.channel?.avatar || 
+    video.user?.avatar || 
+    'assets/c_profile.jpg'
+  );
+  
   const isVerified = !!(video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified);
   const thumbnailUrl = getMediaUri(video.thumbnail_url || video.thumbnailUrl);
 
@@ -98,11 +113,11 @@ const VideoCard = React.memo(({ video, index }: { video: VideoType; index: numbe
               {video.title || 'Untitled Video'}
             </Text>
             
-            {/* Metadata Row */}
+            {/* Metadata Row: Channel • Views • Time */}
             <View style={styles.metaDataRow}>
                 <Text style={styles.metaText} numberOfLines={1}>
                   {channelName}
-                  {isVerified && ' ✓'} 
+                  {isVerified ? ' ✓' : ''} 
                   {' · '}
                   {formatViews(video.views || 0)} views
                   {' · '}
@@ -120,18 +135,16 @@ export default function VideosScreen() {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const insets = useSafeAreaInsets();
 
-  // --- API CALL FIX ---
-  // Ham ab 'selectedFilter' backend ko nahi bhej rahe.
-  // Ham sirf page aur limit bhej rahe hain taaki sare videos aa jayein.
+  // --- DATA FETCHING ---
   const { 
     data: videosData, 
     isLoading, 
     refetch,
     isRefetching,
   } = useQuery({
-    queryKey: ['videos', 'feed'], 
+    queryKey: ['videos', 'feed'], // Unique key
     queryFn: async () => {
-      // API call without category filter
+      // API call: Get ALL videos (no filter passed to server to ensure data)
       const response = await api.videos.getVideos(1, 20); 
       return response;
     },
@@ -140,23 +153,20 @@ export default function VideosScreen() {
   const videos = videosData?.videos || [];
 
   // --- CLIENT SIDE SORTING ---
-  // Data aane ke baad ham phone par sort karenge
   const displayVideos = useMemo(() => {
     if (!videos.length) return [];
     
-    // Create a copy to sort
     let sorted = [...videos];
 
     if (selectedFilter === 'trending') {
-       // Sort by Views (High to Low)
+       // Sort by Views
        sorted.sort((a, b) => ((b.views || 0) - (a.views || 0)));
     } else if (selectedFilter === 'hot') {
        // Filter by Viral Score
        const hotVideos = sorted.filter(v => (v.viral_score || 0) > 50);
-       // Agar hot videos nahi hain, to fallback me trending dikha do
        sorted = hotVideos.length > 0 ? hotVideos : sorted; 
     } else if (selectedFilter === 'recent') {
-       // Sort by Date (Newest First)
+       // Sort by Date
        sorted.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     }
     
@@ -289,6 +299,7 @@ const styles = StyleSheet.create({
   videosList: {
     paddingBottom: 100,
     paddingTop: 0,
+    paddingHorizontal: 0, // Ensure full width
   },
   videoCard: {
     marginBottom: 24,
