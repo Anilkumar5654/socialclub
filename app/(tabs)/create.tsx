@@ -1,8 +1,7 @@
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
-import { Camera, ImageIcon, Video, Type, MapPin, Hash, X } from 'lucide-react-native';
+import { Camera, ImageIcon, Video, Type, MapPin, Hash, X, Clock } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -25,85 +24,55 @@ export default function CreateScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
-  const [contentType, setContentType] = useState<
-    'text' | 'photo' | 'reel' | 'video' | null
-  >(null);
+  
+  // States
+  const [contentType, setContentType] = useState<'text' | 'photo' | 'reel' | 'video' | null>(null);
   const [textContent, setTextContent] = useState('');
   const [location, setLocation] = useState('');
   const [hashtags, setHashtags] = useState('');
+  
+  // Media States
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
-  const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
-  const [reelDuration, setReelDuration] = useState<string>('');
+  const [selectedVideo, setSelectedVideo] = useState<{ uri: string; duration: number } | null>(null);
 
+  // Clear data on tab change or reset
   useEffect(() => {
-    if (contentType !== 'reel' && reelDuration !== '') {
-      setReelDuration('');
+    if (contentType !== 'reel' && contentType !== 'video') {
+      setSelectedVideo(null);
     }
-  }, [contentType, reelDuration]);
+  }, [contentType]);
 
+  // --- MUTATIONS ---
   const createPostMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      return api.posts.create(formData);
-    },
-    onSuccess: () => {
-      Alert.alert('Success', 'Post created successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            resetForm();
-            queryClient.invalidateQueries({ queryKey: ['home-feed'] });
-            queryClient.invalidateQueries({ queryKey: ['user-posts'] });
-            router.push('/(tabs)');
-          },
-        },
-      ]);
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to create post');
-    },
+    mutationFn: async (formData: FormData) => api.posts.create(formData),
+    onSuccess: () => handleSuccess('Post created successfully!', 'home-feed'),
+    onError: (err: any) => Alert.alert('Error', err.message || 'Failed to create post'),
   });
 
   const uploadReelMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      return api.reels.upload(formData);
-    },
-    onSuccess: () => {
-      Alert.alert('Success', 'Reel uploaded successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            resetForm();
-            queryClient.invalidateQueries({ queryKey: ['reels'] });
-            router.push('/(tabs)/reels');
-          },
-        },
-      ]);
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to upload reel');
-    },
+    mutationFn: async (formData: FormData) => api.reels.upload(formData),
+    onSuccess: () => handleSuccess('Reel uploaded successfully!', 'reels'),
+    onError: (err: any) => Alert.alert('Error', err.message || 'Failed to upload reel'),
   });
 
   const uploadVideoMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      return api.videos.upload(formData);
-    },
-    onSuccess: () => {
-      Alert.alert('Success', 'Video uploaded successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            resetForm();
-            queryClient.invalidateQueries({ queryKey: ['videos'] });
-            router.push('/(tabs)/videos');
-          },
-        },
-      ]);
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to upload video');
-    },
+    mutationFn: async (formData: FormData) => api.videos.upload(formData),
+    onSuccess: () => handleSuccess('Video uploaded successfully!', 'videos'),
+    onError: (err: any) => Alert.alert('Error', err.message || 'Failed to upload video'),
   });
+
+  const handleSuccess = (msg: string, queryKey: string) => {
+    Alert.alert('Success', msg, [
+      {
+        text: 'OK',
+        onPress: () => {
+          resetForm();
+          queryClient.invalidateQueries({ queryKey: [queryKey] });
+          router.push('/(tabs)');
+        },
+      },
+    ]);
+  };
 
   const resetForm = () => {
     setContentType(null);
@@ -112,13 +81,14 @@ export default function CreateScreen() {
     setHashtags('');
     setSelectedImages([]);
     setSelectedVideo(null);
-    setReelDuration('');
   };
+
+  // --- MEDIA PICKERS ---
 
   const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please grant permission to access photos');
+      Alert.alert('Permission Required', 'Please grant access to photos');
       return;
     }
 
@@ -130,20 +100,42 @@ export default function CreateScreen() {
 
     if (!result.canceled) {
       const uris = result.assets.map((asset) => asset.uri);
-      setSelectedImages(uris);
+      setSelectedImages(prev => [...prev, ...uris]);
     }
   };
 
+  // UPGRADED: Pick Video with Duration
   const pickVideo = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'video/*',
-      copyToCacheDirectory: true,
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please grant access to videos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: true, // Allows trimming on some devices
+      quality: 1,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setSelectedVideo(result.assets[0].uri);
+      const asset = result.assets[0];
+      const durationInSeconds = Math.round((asset.duration || 0) / 1000);
+
+      // Validation for Reels
+      if (contentType === 'reel' && durationInSeconds > 90) {
+        Alert.alert('Video too long', 'Reels must be under 90 seconds.');
+        return;
+      }
+
+      setSelectedVideo({
+        uri: asset.uri,
+        duration: durationInSeconds
+      });
     }
   };
+
+  // --- SUBMIT HANDLER ---
 
   const handlePost = () => {
     if (!isAuthenticated) {
@@ -167,80 +159,68 @@ export default function CreateScreen() {
       return;
     }
 
-    let parsedReelDuration: number | null = null;
-    if (contentType === 'reel') {
-      const trimmed = reelDuration.trim();
-      parsedReelDuration = Number(trimmed);
-      if (!trimmed || Number.isNaN(parsedReelDuration) || parsedReelDuration <= 0) {
-        Alert.alert('Error', 'Reel duration (seconds) is required');
-        return;
-      }
-    }
-
     const formData = new FormData();
 
+    // 1. Text Post
     if (contentType === 'text') {
       formData.append('type', 'text');
       formData.append('content', textContent);
-    } else if (contentType === 'photo') {
+    } 
+    
+    // 2. Photo Post
+    else if (contentType === 'photo') {
       formData.append('type', 'photo');
-      if (textContent) {
-        formData.append('content', textContent);
-      }
+      if (textContent) formData.append('content', textContent);
+      
       selectedImages.forEach((uri, index) => {
         const filename = uri.split('/').pop() || `image_${index}.jpg`;
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : 'image/jpeg';
         
-        formData.append('images', {
-          uri,
-          name: filename,
-          type,
-        } as any);
+        formData.append('images[]', { uri, name: filename, type } as any);
       });
-    } else if (contentType === 'reel' || contentType === 'video') {
+    } 
+    
+    // 3. Reel or Video
+    else if (contentType === 'reel' || contentType === 'video') {
       if (selectedVideo) {
-        const filename = selectedVideo.split('/').pop() || 'video.mp4';
+        const filename = selectedVideo.uri.split('/').pop() || 'video.mp4';
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `video/${match[1]}` : 'video/mp4';
 
         formData.append('video', {
-          uri: selectedVideo,
+          uri: selectedVideo.uri,
           name: filename,
           type,
         } as any);
 
-        if (textContent) {
-          formData.append('caption', textContent);
+        // Automatic Duration send karna
+        if (selectedVideo.duration) {
+          formData.append('duration', selectedVideo.duration.toString());
         }
+
+        if (textContent) formData.append('caption', textContent); // Reel uses 'caption'
+        if (textContent && contentType === 'video') formData.append('description', textContent); // Video uses 'description'
+        if (contentType === 'video') formData.append('title', 'Untitled Video'); // Placeholder title, can add input if needed
       }
     }
 
-    if (location) {
-      formData.append('location', location);
-    }
+    // Common Fields
+    if (location) formData.append('location', location);
+    if (hashtags) formData.append('hashtags', hashtags);
 
-    if (hashtags) {
-      formData.append('hashtags', hashtags);
-    }
-
-    if (contentType === 'reel' && parsedReelDuration !== null) {
-      formData.append('duration', parsedReelDuration.toString());
-    }
-
-    if (contentType === 'text' || contentType === 'photo') {
-      createPostMutation.mutate(formData);
-    } else if (contentType === 'reel') {
-      uploadReelMutation.mutate(formData);
-    } else if (contentType === 'video') {
-      uploadVideoMutation.mutate(formData);
-    }
+    // Call API based on type
+    if (contentType === 'text' || contentType === 'photo') createPostMutation.mutate(formData);
+    else if (contentType === 'reel') uploadReelMutation.mutate(formData);
+    else if (contentType === 'video') uploadVideoMutation.mutate(formData);
   };
 
   const isLoading = 
     createPostMutation.isPending || 
     uploadReelMutation.isPending || 
     uploadVideoMutation.isPending;
+
+  // --- RENDER ---
 
   if (!contentType) {
     return (
@@ -252,65 +232,43 @@ export default function CreateScreen() {
         <ScrollView style={styles.optionsContainer}>
           <Text style={styles.sectionTitle}>What do you want to create?</Text>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => setContentType('text')}
-          >
+          <TouchableOpacity style={styles.optionCard} onPress={() => setContentType('text')}>
             <View style={[styles.optionIcon, { backgroundColor: Colors.primary }]}>
               <Type color={Colors.text} size={32} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Text Post</Text>
-              <Text style={styles.optionDescription}>
-                Share your thoughts with text
-              </Text>
+              <Text style={styles.optionDescription}>Share your thoughts</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => setContentType('photo')}
-          >
-            <View
-              style={[styles.optionIcon, { backgroundColor: Colors.secondary }]}
-            >
+          <TouchableOpacity style={styles.optionCard} onPress={() => setContentType('photo')}>
+            <View style={[styles.optionIcon, { backgroundColor: Colors.secondary }]}>
               <ImageIcon color={Colors.text} size={32} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Photo Post</Text>
-              <Text style={styles.optionDescription}>
-                Upload and share photos
-              </Text>
+              <Text style={styles.optionDescription}>Share photos</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => setContentType('reel')}
-          >
+          <TouchableOpacity style={styles.optionCard} onPress={() => setContentType('reel')}>
             <View style={[styles.optionIcon, { backgroundColor: Colors.error }]}>
               <Camera color={Colors.text} size={32} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Create Reel</Text>
-              <Text style={styles.optionDescription}>
-                Record or upload short video
-              </Text>
+              <Text style={styles.optionDescription}>Short video (up to 90s)</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => setContentType('video')}
-          >
+          <TouchableOpacity style={styles.optionCard} onPress={() => setContentType('video')}>
             <View style={[styles.optionIcon, { backgroundColor: Colors.info }]}>
               <Video color={Colors.text} size={32} />
             </View>
             <View style={styles.optionContent}>
               <Text style={styles.optionTitle}>Upload Video</Text>
-              <Text style={styles.optionDescription}>
-                Share long-form video content
-              </Text>
+              <Text style={styles.optionDescription}>Long-form video</Text>
             </View>
           </TouchableOpacity>
         </ScrollView>
@@ -330,20 +288,13 @@ export default function CreateScreen() {
           {contentType === 'reel' && 'New Reel'}
           {contentType === 'video' && 'New Video'}
         </Text>
-        <TouchableOpacity
-          onPress={handlePost}
-          disabled={isLoading}
-          testID="create-submit-button"
-        >
-          {isLoading ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <Text style={[styles.headerButton, styles.postButton]}>Post</Text>
-          )}
+        <TouchableOpacity onPress={handlePost} disabled={isLoading} testID="create-submit-button">
+          {isLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={[styles.headerButton, styles.postButton]}>Post</Text>}
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.createContent}>
+      <ScrollView style={styles.createContent} keyboardShouldPersistTaps="handled">
+        {/* TEXT CONTENT */}
         {contentType === 'text' && (
           <View style={styles.textPostContainer}>
             <TextInput
@@ -359,6 +310,7 @@ export default function CreateScreen() {
           </View>
         )}
 
+        {/* PHOTO CONTENT */}
         {contentType === 'photo' && (
           <View style={styles.mediaContainer}>
             {selectedImages.length > 0 ? (
@@ -369,9 +321,7 @@ export default function CreateScreen() {
                       <Image source={{ uri }} style={styles.selectedImage} />
                       <TouchableOpacity
                         style={styles.removeImageButton}
-                        onPress={() => {
-                          setSelectedImages(selectedImages.filter((_, i) => i !== index));
-                        }}
+                        onPress={() => setSelectedImages(selectedImages.filter((_, i) => i !== index))}
                       >
                         <X color={Colors.text} size={16} />
                       </TouchableOpacity>
@@ -388,7 +338,6 @@ export default function CreateScreen() {
                 <Text style={styles.uploadText}>Select Photos</Text>
               </TouchableOpacity>
             )}
-
             <TextInput
               style={styles.captionInput}
               placeholder="Write a caption..."
@@ -401,6 +350,7 @@ export default function CreateScreen() {
           </View>
         )}
 
+        {/* REEL / VIDEO CONTENT */}
         {(contentType === 'reel' || contentType === 'video') && (
           <View style={styles.mediaContainer}>
             {selectedVideo ? (
@@ -408,58 +358,39 @@ export default function CreateScreen() {
                 <View style={styles.videoPlaceholder}>
                   <Video color={Colors.text} size={64} />
                   <Text style={styles.videoSelectedText}>Video Selected</Text>
+                  
+                  {/* AUTO DURATION DISPLAY */}
+                  <View style={styles.durationBadge}>
+                    <Clock size={14} color={Colors.textSecondary} />
+                    <Text style={styles.durationText}>{selectedVideo.duration}s</Text>
+                  </View>
                 </View>
-                <TouchableOpacity
-                  style={styles.changeVideoButton}
-                  onPress={pickVideo}
-                >
+                <TouchableOpacity style={styles.changeVideoButton} onPress={pickVideo}>
                   <Text style={styles.changeVideoText}>Change Video</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity style={styles.uploadButton} onPress={pickVideo}>
-                {contentType === 'reel' ? (
-                  <Camera color={Colors.text} size={48} />
-                ) : (
-                  <Video color={Colors.text} size={48} />
-                )}
+                {contentType === 'reel' ? <Camera color={Colors.text} size={48} /> : <Video color={Colors.text} size={48} />}
                 <Text style={styles.uploadText}>
-                  {contentType === 'reel' ? 'Record or Select' : 'Select Video'}
+                  {contentType === 'reel' ? 'Select Reel (Max 90s)' : 'Select Video'}
                 </Text>
               </TouchableOpacity>
             )}
 
             <TextInput
               style={styles.captionInput}
-              placeholder="Write a caption..."
+              placeholder={contentType === 'video' ? "Video Description..." : "Write a caption..."}
               placeholderTextColor={Colors.textMuted}
               multiline
               value={textContent}
               onChangeText={setTextContent}
               editable={!isLoading}
             />
-
-            {contentType === 'reel' && (
-              <View style={styles.durationCard}>
-                <Text style={styles.durationLabel}>Duration (seconds)</Text>
-                <TextInput
-                  style={styles.durationInput}
-                  value={reelDuration}
-                  onChangeText={setReelDuration}
-                  placeholder="e.g. 30"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="numeric"
-                  testID="reel-duration-input"
-                  editable={!isLoading}
-                />
-                <Text style={styles.durationHelper}>
-                  Match the actual clip length to avoid upload rejection.
-                </Text>
-              </View>
-            )}
           </View>
         )}
 
+        {/* COMMON OPTIONS */}
         <View style={styles.additionalOptions}>
           <View style={styles.optionRow}>
             <MapPin color={Colors.textSecondary} size={20} />
@@ -643,6 +574,20 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontWeight: '600' as const,
   },
+  durationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4
+  },
+  durationText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+  },
   changeVideoButton: {
     paddingVertical: 12,
     paddingHorizontal: 20,
@@ -660,33 +605,6 @@ const styles = StyleSheet.create({
     color: Colors.text,
     minHeight: 80,
     textAlignVertical: 'top',
-  },
-  durationCard: {
-    marginTop: 16,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 10,
-  },
-  durationLabel: {
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '600' as const,
-  },
-  durationInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: Colors.text,
-  },
-  durationHelper: {
-    fontSize: 12,
-    color: Colors.textSecondary,
   },
   additionalOptions: {
     paddingHorizontal: 16,
