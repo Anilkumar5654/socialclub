@@ -1,4 +1,5 @@
 import { ApiLogger } from '@/app/api-debug';
+import { getDeviceId } from '@/utils/deviceId'; // Direct import to prevent hanging
 
 const API_BASE_URL = 'https://moviedbr.com/api';
 const MEDIA_BASE_URL = 'https://moviedbr.com/upload';
@@ -117,21 +118,19 @@ class ApiClient {
         apiDebugLogger({
           endpoint,
           method: options.method || 'GET',
-          status: parseError && !response.ok ? 'error' : 'success', // Treat parse error as success if status is OK (fallback for text response)
+          status: parseError && !response.ok ? 'error' : 'success', 
           statusCode: response.status,
           request: requestBody,
           response: responseData,
           rawResponse: rawResponseText,
           contentType,
-          parseError: response.ok ? null : parseError, // Only report parse error if request failed or we really needed JSON
+          parseError: response.ok ? null : parseError, 
           error: parseError && !response.ok ? `JSON Parse Error: ${parseError}` : undefined,
           duration,
         });
       }
 
       if (parseError && !response.ok) {
-         // Only throw parse error if status was not OK, otherwise accept text response
-         // This handles backend returning "OK" or plain text for success
         throw new Error(`JSON Parse Error: ${parseError}`);
       }
 
@@ -223,96 +222,10 @@ class ApiClient {
     },
 
     upload: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/stories/upload',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/stories/upload`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/stories/upload',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to upload story');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/stories/upload',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/stories/upload',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/stories/upload', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     view: async (storyId: string) => {
@@ -333,96 +246,10 @@ class ApiClient {
     },
 
     create: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/posts/create',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/posts/create`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/posts/create',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to create post');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/posts/create',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/posts/create',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/posts/create', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     delete: async (id: string) => {
@@ -572,96 +399,10 @@ class ApiClient {
     },
 
     upload: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/reels/upload',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/reels/upload`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/reels/upload',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to upload reel');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/reels/upload',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/reels/upload',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/reels/upload', {
+        method: 'POST',
+        body: formData,
+      });
     },
   };
 
@@ -751,111 +492,37 @@ class ApiClient {
     },
 
     upload: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/videos/upload',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/videos/upload`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/videos/upload',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to upload video');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/videos/upload',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/videos/upload',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/videos/upload', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     view: async (id: string) => {
+      let deviceId = 'unknown_device';
+
       try {
-        const { getDeviceId } = await import('@/utils/deviceId');
-        const deviceId = await getDeviceId();
-        console.log('[API] Calling POST /videos/action/view with video_id:', id, 'device_id:', deviceId?.substring(0, 20) + '...');
-        return this.request(`/videos/action/view`, {
-          method: 'POST',
-          body: JSON.stringify({ video_id: id, device_id: deviceId }),
-        });
-      } catch (error: any) {
-        console.error('[API] Error in videos.view:', error?.message || error);
-        throw error;
+        // Safe check for device ID with 2s timeout
+        const idPromise = getDeviceId();
+        const timeoutPromise = new Promise<string | null>(resolve => setTimeout(() => resolve(null), 2000));
+        
+        const id = await Promise.race([idPromise, timeoutPromise]);
+        
+        if (id && typeof id === 'string') {
+            deviceId = id;
+        } else {
+            console.log('[API] Device ID fetch timeout or failed, using fallback');
+        }
+      } catch (err) {
+        console.log('[API] Device ID fetch error:', err);
       }
+
+      console.log('[API] Calling POST /videos/action/view', { id, deviceId });
+
+      return this.request(`/videos/action/view`, {
+        method: 'POST',
+        body: JSON.stringify({ video_id: id, device_id: deviceId }),
+      });
     },
 
     trackWatch: async (
@@ -888,282 +555,24 @@ class ApiClient {
     },
 
     updateProfile: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/users/edit_profile',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/users/edit_profile`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/users/edit_profile',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to update profile');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/users/edit_profile',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/users/edit_profile',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/users/edit_profile', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     uploadAvatar: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/users/avatar',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/users/avatar`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/users/avatar',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to upload avatar');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/users/avatar',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/users/avatar',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/users/avatar', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     uploadCover: async (formData: FormData) => {
-      const startTime = Date.now();
-      
-      if (apiDebugLogger) {
-        apiDebugLogger({
-          endpoint: '/users/cover',
-          method: 'POST',
-          status: 'pending',
-          request: 'FormData (multipart/form-data)',
-        });
-      }
-
-      try {
-        const response = await fetch(`${this.baseUrl}/users/cover`, {
-          method: 'POST',
-          headers: {
-            Authorization: this.token ? `Bearer ${this.token}` : '',
-          },
-          body: formData,
-        });
-
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type');
-        const rawResponseText = await response.text();
-        
-        let responseData: any = null;
-        let parseError: string | null = null;
-        
-        try {
-          responseData = rawResponseText ? JSON.parse(rawResponseText) : null;
-        } catch (jsonError: any) {
-          parseError = jsonError.message;
-          responseData = rawResponseText;
-        }
-
-        if (!response.ok) {
-          if (apiDebugLogger) {
-            apiDebugLogger({
-              endpoint: '/users/cover',
-              method: 'POST',
-              status: 'error',
-              statusCode: response.status,
-              request: 'FormData (multipart/form-data)',
-              response: responseData,
-              rawResponse: rawResponseText,
-              contentType,
-              parseError,
-              error: (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`,
-              duration,
-            });
-          }
-          throw new Error((responseData && typeof responseData === 'object' && responseData.message) || 'Failed to upload cover');
-        }
-
-        if (apiDebugLogger) {
-          apiDebugLogger({
-            endpoint: '/users/cover',
-            method: 'POST',
-            status: parseError ? 'error' : 'success',
-            statusCode: response.status,
-            request: 'FormData (multipart/form-data)',
-            response: responseData,
-            rawResponse: rawResponseText,
-            contentType,
-            parseError,
-            error: parseError ? `JSON Parse Error: ${parseError}` : undefined,
-            duration,
-          });
-        }
-
-        if (parseError) {
-          throw new Error(`JSON Parse Error: ${parseError}`);
-        }
-
-        return responseData;
-      } catch (error: any) {
-        const duration = Date.now() - startTime;
-        
-        if (apiDebugLogger && !error.statusCode) {
-          apiDebugLogger({
-            endpoint: '/users/cover',
-            method: 'POST',
-            status: 'error',
-            request: 'FormData (multipart/form-data)',
-            error: error.message || 'Network error',
-            duration,
-          });
-        }
-        
-        throw error;
-      }
+      return this.request('/users/cover', {
+        method: 'POST',
+        body: formData,
+      });
     },
 
     follow: async (userId: string) => {
