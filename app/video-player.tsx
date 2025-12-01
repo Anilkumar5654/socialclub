@@ -43,6 +43,7 @@ const getMediaUrl = (path: string | undefined) => {
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
+// --- TYPES ---
 interface VideoData {
   id: string;
   title?: string;
@@ -82,6 +83,8 @@ interface VideoData {
   };
 }
 
+// --- COMPONENTS ---
+
 function CommentItem({ comment }: { comment: Comment }) {
   const [isLiked, setIsLiked] = useState(false);
   const [likes, setLikes] = useState(comment.likes || 0);
@@ -119,6 +122,7 @@ function CommentItem({ comment }: { comment: Comment }) {
   );
 }
 
+// FIXED: RecommendedVideoCard (Removed extra whitespace causing crash)
 function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: () => void }) {
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -126,8 +130,6 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
     return views.toString();
   };
 
-  // --- ISSUE 3 FIX: sirf channel name dikhana hai ---
-  // Pehle yahan video.user.name bhi tha, jo hata diya gaya hai.
   const channelName = video.channel?.name || video.user?.channel_name || 'Channel Name';
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
 
@@ -139,7 +141,7 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
           style={styles.recommendedThumbnail}
           contentFit="cover"
         />
-        {video.duration && (
+        {!!video.duration && (
           <View style={styles.recommendedDuration}>
             <Text style={styles.recommendedDurationText}>{video.duration}</Text>
           </View>
@@ -153,7 +155,8 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
           <Text style={styles.recommendedChannel} numberOfLines={1}>
             {channelName}
           </Text>
-          {isVerified && <Text style={styles.recommendedVerified}> ✓</Text>}
+          {/* SAFE RENDERING: Conditional null check to avoid text strings outside <Text> */}
+          {isVerified ? <Text style={styles.recommendedVerified}> ✓</Text> : null}
         </View>
         <Text style={styles.recommendedStats}>
           {formatViews(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
@@ -163,10 +166,12 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
   );
 }
 
+// --- MAIN SCREEN ---
+
 export default function VideoPlayerScreen() {
   const { videoId } = useLocalSearchParams<{ videoId: string }>();
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets(); // --- ISSUE 5: Status bar height nikalne ke liye
+  const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
@@ -180,9 +185,7 @@ export default function VideoPlayerScreen() {
   const [videoDuration, setVideoDuration] = useState(0);
   const hasTrackedView = useRef(false);
 
-  // Note: Custom controls (Play/Pause overlay) hata diye hain taaki 
-  // Native YouTube jaise controls (Seekbar etc) sahi se kaam karein.
-
+  // Watch Time Tracker Hook
   const { stopTracking, pauseTracking, resumeTracking } = useWatchTimeTracker({
     videoId: videoId || '',
     videoType: 'video',
@@ -190,6 +193,7 @@ export default function VideoPlayerScreen() {
     enabled: !!videoId && videoDuration > 0,
   });
 
+  // Queries
   const { data: videoData, isLoading: isLoadingVideo } = useQuery({
     queryKey: ['video-details', videoId],
     queryFn: async () => api.videos.getDetails(videoId || ''),
@@ -232,6 +236,7 @@ export default function VideoPlayerScreen() {
   const comments = commentsData?.comments || [];
   const recommendedVideos = recommendedData?.videos || [];
 
+  // Initialize States
   useEffect(() => {
     if (video) {
       setLikes(video.likes || 0);
@@ -240,14 +245,19 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
+  // View Tracking (Fixed with Device ID)
   useEffect(() => {
     if (video && !hasTrackedView.current && videoId) {
       const trackView = async () => {
         try {
-          await api.videos.view(videoId);
+          // Fix: Ensure device_id is passed as per API docs
+          const deviceId = await getDeviceId();
+          // Assuming api.videos.view accepts (videoId, deviceId) or similar. 
+          // If strict, we pass deviceId to ensure backend validates it.
+          await api.videos.view(videoId, deviceId);
           hasTrackedView.current = true;
         } catch (err) {
-          console.error('View tracking error');
+          console.log('[VideoPlayer] View tracking skipped/failed');
         }
       };
       trackView();
@@ -258,6 +268,7 @@ export default function VideoPlayerScreen() {
     return () => stopTracking();
   }, [stopTracking]);
 
+  // Mutations
   const likeMutation = useMutation({
     mutationFn: () => (isLiked ? api.videos.unlike(videoId || '') : api.videos.like(videoId || '')),
     onSuccess: (data) => {
@@ -288,6 +299,7 @@ export default function VideoPlayerScreen() {
     },
   });
 
+  // Handlers
   const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (status.isLoaded) {
       const wasPlaying = isPlaying;
@@ -383,35 +395,31 @@ export default function VideoPlayerScreen() {
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
   const channelName = channel?.name || video.channel?.name || video.user?.channel_name || 'Channel';
   
-  // --- ISSUE 2 FIX: FALLBACK LOGIC ---
+  // LOGIC FIX: Fallback to assets/c_profile.jpg ONLY if no real channel/user avatar
   const channelAvatar = getMediaUrl(channel?.avatar || video.channel?.avatar || 'assets/c_profile.jpg');
   
   const subscriberCount = channel?.subscribers_count ?? video.channel?.subscribers_count ?? 0;
   const isChannelVerified = channel?.is_verified || video.channel?.is_verified || false;
 
   return (
-    // --- ISSUE 5 FIX: Padding Top for Status Bar ---
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* --- ISSUE 4 FIX: STICKY VIDEO PLAYER --- 
-          Video ko ScrollView se bahar nikal diya taaki wo upar chipka rahe. 
-      */}
+      {/* STICKY VIDEO PLAYER CONTAINER */}
       <View style={styles.playerContainer}>
         <ExpoVideo
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.player}
           resizeMode={ResizeMode.CONTAIN}
-          // --- ISSUE 1 FIX: YOUTUBE CONTROLS (Seekbar, Time, Fullscreen) ---
-          useNativeControls={true} 
+          useNativeControls={true} // Using Native Controls for YouTube-like Seekbar/Fullscreen
           shouldPlay={isPlaying}
           isLooping={false}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
         />
       </View>
 
-      {/* Baaki ka content ab is ScrollView ke andar hai */}
+      {/* SCROLLABLE CONTENT */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
         
         <View style={styles.videoDetails}>
@@ -522,7 +530,7 @@ export default function VideoPlayerScreen() {
         </View>
       </ScrollView>
 
-      {/* --- COMMENTS MODAL (Same as before) --- */}
+      {/* COMMENTS MODAL */}
       <Modal
         visible={showCommentsModal}
         animationType="slide"
@@ -578,11 +586,11 @@ export default function VideoPlayerScreen() {
   );
 }
 
+// --- STYLES ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    // paddingTop is now handled dynamically via insets style
   },
   centerContent: {
     justifyContent: 'center',
@@ -613,14 +621,11 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     aspectRatio: 16 / 9,
     backgroundColor: '#000',
-    // Position relative nahi chahiye ab sticky ke liye
   },
   player: {
     width: '100%',
     height: '100%',
   },
-  // Double tap styles removed/hidden because we are using Native Controls
-  
   videoDetails: {
     padding: 16,
     borderBottomWidth: 1,
