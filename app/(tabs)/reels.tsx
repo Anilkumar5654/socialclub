@@ -31,6 +31,7 @@ import {
   Alert,
   ScrollView,
   Pressable,
+  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -122,7 +123,7 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   const queryClient = useQueryClient();
   const videoRef = useRef<ExpoVideo>(null);
   
-  // Interaction States
+  // States
   const [isLiked, setIsLiked] = useState(reel.isLiked);
   const [likes, setLikes] = useState(reel.likes);
   const [isMuted, setIsMuted] = useState(false);
@@ -130,28 +131,17 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [showPlayIcon, setShowPlayIcon] = useState(false);
   
-  // --- NEW LOGIC: Channel vs User ---
-  // API returns 'channel' object if user has one
-  const hasChannel = !!reel.channel;
+  // FIX: Initial View Tracking State
+  const [initialViewTracked, setInitialViewTracked] = useState(false); 
+
+  // Data Mapping
+  const r = reel as any;
+  const hasChannel = !!r.channel;
+  const channelId = r.channel?.id;
+  const displayName = hasChannel ? r.channel?.name : (r.user?.name || r.user?.username);
   
-  // Data Mapping (Prioritize Channel Info)
-  const channelId = reel.channel?.id;
-  const targetId = hasChannel ? reel.channel?.id : reel.user.id;
-  const displayName = hasChannel ? reel.channel?.name : (reel.user?.name || reel.user?.username);
-  
-  const getMediaUri = (uri: string | undefined) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
-
-  const avatarUrl = getMediaUri(
-    hasChannel ? reel.channel?.avatar : (reel.user?.avatar || 'assets/c_profile.jpg')
-  );
-
-  const videoUrl = getMediaUri(reel.videoUrl || (reel as any).video_url);
-
-  // Subscribe State (API sends 'isSubscribed' which handles both sub/follow logic backend side)
-  const [isSubscribed, setIsSubscribed] = useState(reel.isSubscribed || false);
+  // Subscription state
+  const [isSubscribed, setIsSubscribed] = useState(r.isSubscribed || false);
 
   // Watch Time Tracking
   const watchTimeRef = useRef(0);
@@ -162,19 +152,19 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   // Animation
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // --- PLAYBACK EFFECT ---
-  useEffect(() => {
-    if (!videoRef.current) return;
+  const getMediaUri = (uri: string | undefined) => {
+    if (!uri) return '';
+    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+  };
 
-    if (isActive && isScreenFocused) {
-      videoRef.current.playAsync();
-      startTimeRef.current = Date.now();
-    } else {
-      videoRef.current.pauseAsync();
-      trackViewSession();
-    }
-  }, [isActive, isScreenFocused]);
+  const avatarUrl = getMediaUri(
+    hasChannel ? r.channel?.avatar : (r.user?.avatar || 'assets/c_profile.jpg')
+  );
 
+  const videoUrl = getMediaUri(r.video_url || r.videoUrl);
+
+
+  // --- VIEW TRACKING LOGIC ---
   const trackViewSession = async () => {
     if (!startTimeRef.current || durationRef.current === 0) return;
     
@@ -182,7 +172,7 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     watchTimeRef.current += sessionTime;
     startTimeRef.current = 0;
 
-    // Track if watched more than 3 seconds and not tracked yet
+    // Track for algorithm (watch time)
     if (watchTimeRef.current > 3 && !hasTrackedView.current) {
       const completionRate = Math.min((watchTimeRef.current / durationRef.current) * 100, 100);
       try {
@@ -194,6 +184,27 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
     }
   };
 
+  // --- PLAYBACK EFFECT (The Final Fix) ---
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    if (isActive && isScreenFocused) {
+      videoRef.current.playAsync();
+      startTimeRef.current = Date.now();
+      
+      // --- VIEW COUNT (+1) TRIGGER ---
+      if (!initialViewTracked) {
+          api.reels.view(reel.id)
+            .then(() => setInitialViewTracked(true))
+            .catch(e => console.log('Initial view count failed.', e));
+      }
+
+    } else {
+      videoRef.current.pauseAsync();
+      trackViewSession(); // Track watch time when pausing
+    }
+  }, [isActive, isScreenFocused]); // Dependencies
+
   // --- MUTATIONS ---
   const { mutate: toggleLike } = useMutation({
     mutationFn: () => isLiked ? api.reels.unlike(reel.id) : api.reels.like(reel.id),
@@ -202,15 +213,14 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
 
   const { mutate: handleSubscribeAction, isPending: subPending } = useMutation({
     mutationFn: () => {
-      // Dynamic Logic: Channel -> Subscribe API, User -> Follow API
       if (hasChannel && channelId) {
         return isSubscribed 
           ? api.channels.unsubscribe(channelId) 
           : api.channels.subscribe(channelId);
       } else {
         return isSubscribed 
-          ? api.users.unfollow(reel.user.id) 
-          : api.users.follow(reel.user.id); 
+          ? api.users.unfollow(r.user.id) 
+          : api.users.follow(r.user.id); 
       }
     },
     onSuccess: () => {
@@ -238,10 +248,9 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
   };
 
   const handleProfilePress = () => {
-    router.push({ pathname: '/user/[userId]', params: { userId: reel.user.id } });
+    router.push({ pathname: '/user/[userId]', params: { userId: r.user.id } });
   };
 
-  // --- SAFE FORMAT COUNT ---
   const formatCount = (count: any) => {
     if (count === undefined || count === null) return "0";
     const num = Number(count);
@@ -265,7 +274,7 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.video}
-          resizeMode={ResizeMode.CONTAIN} // Fit logic
+          resizeMode={ResizeMode.CONTAIN} // 16:9 Fit
           isLooping
           isMuted={isMuted}
           shouldPlay={isActive && isScreenFocused}
@@ -298,26 +307,30 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
             
             <Text style={styles.username} numberOfLines={1}>{displayName}</Text>
             
-            {/* Dynamic Subscribe/Follow Button */}
-            {!isSubscribed && (
-              <TouchableOpacity 
-                style={styles.subBtn} 
-                onPress={() => handleSubscribeAction()}
-                disabled={subPending}
-              >
-                <Text style={styles.subText}>
-                  {subPending ? '...' : (hasChannel ? 'Subscribe' : 'Follow')}
-                </Text>
-              </TouchableOpacity>
-            )}
+            {/* Dynamic Subscribe/Follow/Unsubscribe Button (FIXED) */}
+            {/* Note: Assuming current user ID check is done by backend/feed filter or to be added if needed */}
+            <TouchableOpacity 
+              style={[styles.subBtn, isSubscribed && styles.unsubBtn]} 
+              onPress={() => handleSubscribeAction()}
+              disabled={subPending}
+            >
+              <Text style={[styles.subText, isSubscribed && styles.unsubText]}>
+                {subPending 
+                  ? '...' 
+                  : isSubscribed 
+                    ? (hasChannel ? 'Unsubscribe' : 'Unfollow') // Text when subscribed/followed
+                    : (hasChannel ? 'Subscribe' : 'Follow') // Text when NOT subscribed/followed
+                }
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <Text style={styles.caption} numberOfLines={2}>{reel.caption}</Text>
+          <Text style={styles.caption} numberOfLines={2}>{r.caption}</Text>
           
-          {reel.music && (
+          {r.music && (
             <View style={styles.musicRow}>
               <Music size={12} color="white" />
-              <Text style={styles.musicText}>{reel.music.title}</Text>
+              <Text style={styles.musicText}>{r.music.title}</Text>
             </View>
           )}
         </View>
@@ -335,19 +348,19 @@ function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
           {/* Views */}
           <View style={styles.actionBtn}>
             <Eye size={28} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.views)}</Text>
+            <Text style={styles.actionText}>{formatCount(r.views_count || r.views)}</Text>
           </View>
 
           {/* Comments */}
           <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentsVisible(true)}>
             <MessageCircle size={30} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.comments)}</Text>
+            <Text style={styles.actionText}>{formatCount(r.comments_count || r.comments)}</Text>
           </TouchableOpacity>
 
           {/* Share */}
           <TouchableOpacity style={styles.actionBtn} onPress={() => shareReel()}>
             <Share2 size={28} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.shares)}</Text>
+            <Text style={styles.actionText}>{formatCount(r.shares_count || r.shares)}</Text>
           </TouchableOpacity>
 
           {/* Music Disc */}
@@ -392,6 +405,7 @@ export default function ReelsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Text style={styles.headerText}>Reels</Text>
       </View>
@@ -443,8 +457,23 @@ const styles = StyleSheet.create({
   userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'white', marginRight: 10 },
   username: { color: 'white', fontWeight: 'bold', fontSize: 16, marginRight: 10, maxWidth: 120 },
-  subBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'white', backgroundColor: 'rgba(0,0,0,0.3)' },
+  
+  // FIXED STYLES: 
+  subBtn: { 
+    paddingHorizontal: 10, 
+    paddingVertical: 4, 
+    borderRadius: 6, 
+    borderWidth: 1, 
+    borderColor: 'white', 
+    backgroundColor: 'rgba(0,0,0,0.3)', 
+    marginLeft: 10 // Added margin to separate from username
+  },
   subText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  
+  // New style for the subscribed/followed state (Unsubscribe/Unfollow)
+  unsubBtn: { backgroundColor: 'white', borderColor: 'transparent' },
+  unsubText: { color: 'black' }, // Overrides subText color to black
+
   caption: { color: 'white', fontSize: 14, marginBottom: 10, textShadowColor: 'black', textShadowRadius: 1 },
   musicRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
   musicText: { color: 'white', fontSize: 12, marginLeft: 5 },
@@ -455,7 +484,7 @@ const styles = StyleSheet.create({
   discContainer: { width: 45, height: 45, borderRadius: 25, backgroundColor: '#222', borderWidth: 2, borderColor: '#333', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
   discImg: { width: 30, height: 30, borderRadius: 15 },
 
-  // Comments Styles
+  // Comments Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   commentsContainer: { height: '70%', backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#333' },
