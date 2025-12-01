@@ -8,8 +8,6 @@ import {
   MessageCircle,
   Send,
   ChevronDown,
-  Play,
-  Pause,
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -24,8 +22,6 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
-  Animated,
-  Pressable,
   Modal,
   Platform,
 } from 'react-native';
@@ -40,6 +36,12 @@ import { getDeviceId } from '@/utils/deviceId';
 import { Comment } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// --- HELPER FUNCTION ---
+const getMediaUrl = (path: string | undefined) => {
+  if (!path) return '';
+  return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
+};
 
 interface VideoData {
   id: string;
@@ -84,15 +86,10 @@ function CommentItem({ comment }: { comment: Comment }) {
   const [isLiked, setIsLiked] = useState(false);
   const [likes, setLikes] = useState(comment.likes || 0);
 
-  const getMediaUri = (uri: string | undefined) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
-
   return (
     <View style={styles.commentItem}>
       <Image 
-        source={{ uri: getMediaUri(comment.user?.avatar) }} 
+        source={{ uri: getMediaUrl(comment.user?.avatar) }} 
         style={styles.commentAvatar} 
       />
       <View style={styles.commentContent}>
@@ -123,25 +120,22 @@ function CommentItem({ comment }: { comment: Comment }) {
 }
 
 function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: () => void }) {
-  const getMediaUri = (path: string | undefined) => {
-    if (!path) return '';
-    return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
-  };
-
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
     if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
     return views.toString();
   };
 
-  const channelName = video.channel?.name || video.user?.channel_name || video.user?.name || 'Channel';
+  // --- ISSUE 3 FIX: sirf channel name dikhana hai ---
+  // Pehle yahan video.user.name bhi tha, jo hata diya gaya hai.
+  const channelName = video.channel?.name || video.user?.channel_name || 'Channel Name';
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
 
   return (
     <TouchableOpacity style={styles.recommendedCard} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.recommendedThumbnailContainer}>
         <Image
-          source={{ uri: getMediaUri(video.thumbnail_url || video.thumbnailUrl) }}
+          source={{ uri: getMediaUrl(video.thumbnail_url || video.thumbnailUrl) }}
           style={styles.recommendedThumbnail}
           contentFit="cover"
         />
@@ -172,7 +166,7 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
 export default function VideoPlayerScreen() {
   const { videoId } = useLocalSearchParams<{ videoId: string }>();
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(); // --- ISSUE 5: Status bar height nikalne ke liye
   const videoRef = useRef<ExpoVideo>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
@@ -184,14 +178,10 @@ export default function VideoPlayerScreen() {
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [videoDuration, setVideoDuration] = useState(0);
-  const [currentPosition, setCurrentPosition] = useState(0);
-  const [showControls, setShowControls] = useState(false);
   const hasTrackedView = useRef(false);
 
-  const seekAnimLeft = useRef(new Animated.Value(0)).current;
-  const seekAnimRight = useRef(new Animated.Value(0)).current;
-  const [seekIndicator, setSeekIndicator] = useState<'left' | 'right' | null>(null);
-  const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Note: Custom controls (Play/Pause overlay) hata diye hain taaki 
+  // Native YouTube jaise controls (Seekbar etc) sahi se kaam karein.
 
   const { stopTracking, pauseTracking, resumeTracking } = useWatchTimeTracker({
     videoId: videoId || '',
@@ -202,12 +192,7 @@ export default function VideoPlayerScreen() {
 
   const { data: videoData, isLoading: isLoadingVideo } = useQuery({
     queryKey: ['video-details', videoId],
-    queryFn: async () => {
-      console.log('[VideoPlayer] Fetching video details for:', videoId);
-      const response = await api.videos.getDetails(videoId || '');
-      console.log('[VideoPlayer] Video loaded:', response.video?.title);
-      return response;
-    },
+    queryFn: async () => api.videos.getDetails(videoId || ''),
     enabled: !!videoId,
   });
 
@@ -216,37 +201,25 @@ export default function VideoPlayerScreen() {
     queryFn: async () => {
       const channelId = videoData?.video?.user?.channel_id;
       if (!channelId) return null;
-      console.log('[VideoPlayer] Fetching channel details for:', channelId);
-      const response = await api.channels.getChannel(channelId);
-      console.log('[VideoPlayer] Channel loaded:', response.channel?.name);
-      return response;
+      return api.channels.getChannel(channelId);
     },
     enabled: !!videoData?.video?.user?.channel_id,
   });
 
   const { data: commentsData, refetch: refetchComments } = useQuery({
     queryKey: ['video-comments', videoId],
-    queryFn: async () => {
-      console.log('[VideoPlayer] Fetching comments for:', videoId);
-      const response = await api.videos.getComments(videoId || '', 1);
-      console.log('[VideoPlayer] Comments loaded:', response.comments?.length || 0);
-      return response;
-    },
+    queryFn: async () => api.videos.getComments(videoId || '', 1),
     enabled: !!videoId,
   });
 
   const { data: recommendedData } = useQuery({
     queryKey: ['recommended-videos', videoId],
     queryFn: async () => {
-      console.log('[VideoPlayer] Fetching recommended videos');
       try {
         const response = await api.videos.getRecommended(videoId || '');
-        if (response.videos && response.videos.length > 0) {
-          return response;
-        }
+        if (response.videos?.length > 0) return response;
         throw new Error('No recommended videos');
       } catch {
-        console.log('[VideoPlayer] Falling back to regular videos');
         const fallback = await api.videos.getVideos(1, 10);
         return { videos: fallback.videos?.filter((v: VideoData) => v.id !== videoId) || [] };
       }
@@ -271,14 +244,10 @@ export default function VideoPlayerScreen() {
     if (video && !hasTrackedView.current && videoId) {
       const trackView = async () => {
         try {
-          const deviceId = await getDeviceId();
-          console.log('[VideoPlayer] Tracking view with device_id:', deviceId.substring(0, 20) + '...');
           await api.videos.view(videoId);
-          console.log('[VideoPlayer] View tracked successfully');
           hasTrackedView.current = true;
-        } catch (err: unknown) {
-          const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          console.error('[VideoPlayer] Failed to track view:', errorMessage);
+        } catch (err) {
+          console.error('View tracking error');
         }
       };
       trackView();
@@ -286,12 +255,7 @@ export default function VideoPlayerScreen() {
   }, [video, videoId]);
 
   useEffect(() => {
-    return () => {
-      stopTracking();
-      if (controlsTimeout.current) {
-        clearTimeout(controlsTimeout.current);
-      }
-    };
+    return () => stopTracking();
   }, [stopTracking]);
 
   const likeMutation = useMutation({
@@ -301,27 +265,17 @@ export default function VideoPlayerScreen() {
       setLikes(data.likes);
       queryClient.invalidateQueries({ queryKey: ['video-details', videoId] });
     },
-    onError: (error: unknown) => {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update like';
-      Alert.alert('Error', errorMessage);
-    },
   });
 
   const subscribeMutation = useMutation({
     mutationFn: () => {
       const channelId = channel?.id || video?.user?.channel_id;
-      if (!channelId) throw new Error('No channel to subscribe to');
-      return isSubscribed 
-        ? api.channels.unsubscribe(channelId) 
-        : api.channels.subscribe(channelId);
+      if (!channelId) throw new Error('No channel');
+      return isSubscribed ? api.channels.unsubscribe(channelId) : api.channels.subscribe(channelId);
     },
     onSuccess: (data) => {
       setIsSubscribed(data.isSubscribed);
       queryClient.invalidateQueries({ queryKey: ['channel-details'] });
-    },
-    onError: (error: unknown) => {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update subscription';
-      Alert.alert('Error', errorMessage);
     },
   });
 
@@ -332,10 +286,6 @@ export default function VideoPlayerScreen() {
       refetchComments();
       queryClient.invalidateQueries({ queryKey: ['video-comments', videoId] });
     },
-    onError: (error: unknown) => {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to add comment';
-      Alert.alert('Error', errorMessage);
-    },
   });
 
   const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
@@ -344,88 +294,18 @@ export default function VideoPlayerScreen() {
       const nowPlaying = status.isPlaying;
       setIsPlaying(nowPlaying);
 
-      if (wasPlaying && !nowPlaying) {
-        pauseTracking();
-      } else if (!wasPlaying && nowPlaying) {
-        resumeTracking();
-      }
+      if (wasPlaying && !nowPlaying) pauseTracking();
+      else if (!wasPlaying && nowPlaying) resumeTracking();
 
-      if (status.durationMillis) {
-        setVideoDuration(status.durationMillis);
-      }
-      if (status.positionMillis !== undefined) {
-        setCurrentPosition(status.positionMillis);
-      }
-      if (status.didJustFinish) {
-        stopTracking();
-      }
+      if (status.durationMillis) setVideoDuration(status.durationMillis);
+      if (status.didJustFinish) stopTracking();
     }
   }, [isPlaying, pauseTracking, resumeTracking, stopTracking]);
-
-  const handleTogglePlay = useCallback(async () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      await videoRef.current.pauseAsync();
-    } else {
-      await videoRef.current.playAsync();
-    }
-  }, [isPlaying]);
-
-  const handleDoubleTapSeek = useCallback(async (direction: 'left' | 'right') => {
-    if (!videoRef.current) return;
-    
-    const seekAmount = direction === 'left' ? -10000 : 10000;
-    const newPosition = Math.max(0, Math.min(videoDuration, currentPosition + seekAmount));
-    
-    await videoRef.current.setPositionAsync(newPosition);
-    
-    const anim = direction === 'left' ? seekAnimLeft : seekAnimRight;
-    setSeekIndicator(direction);
-    
-    Animated.sequence([
-      Animated.timing(anim, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 0, duration: 150, delay: 300, useNativeDriver: true }),
-    ]).start(() => setSeekIndicator(null));
-  }, [videoDuration, currentPosition, seekAnimLeft, seekAnimRight]);
-
-  const lastTapLeft = useRef(0);
-  const lastTapRight = useRef(0);
-
-  const handleTapLeft = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTapLeft.current < 300) {
-      handleDoubleTapSeek('left');
-    }
-    lastTapLeft.current = now;
-  }, [handleDoubleTapSeek]);
-
-  const handleTapRight = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTapRight.current < 300) {
-      handleDoubleTapSeek('right');
-    }
-    lastTapRight.current = now;
-  }, [handleDoubleTapSeek]);
-
-  const handleShowControls = useCallback(() => {
-    setShowControls(true);
-    if (controlsTimeout.current) {
-      clearTimeout(controlsTimeout.current);
-    }
-    controlsTimeout.current = setTimeout(() => {
-      setShowControls(false);
-    }, 3000);
-  }, []);
-
-  const getMediaUrl = useCallback((path: string | undefined) => {
-    if (!path) return '';
-    return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
-  }, []);
 
   const handleLike = useCallback(() => {
     if (isDisliked) setIsDisliked(false);
     likeMutation.mutate();
-  }, [isDisliked, likeMutation.mutate]);
+  }, [isDisliked, likeMutation]);
 
   const handleDislike = useCallback(() => {
     if (isLiked) {
@@ -435,57 +315,45 @@ export default function VideoPlayerScreen() {
     setIsDisliked(!isDisliked);
   }, [isLiked, isDisliked]);
 
-  const handleSubscribe = useCallback(() => {
-    subscribeMutation.mutate();
-  }, [subscribeMutation.mutate]);
+  const handleSubscribe = useCallback(() => subscribeMutation.mutate(), [subscribeMutation]);
 
   const handleAddComment = useCallback(() => {
     if (!commentText.trim()) return;
     commentMutation.mutate(commentText.trim());
-  }, [commentText, commentMutation.mutate]);
+  }, [commentText, commentMutation]);
 
   const handleShare = useCallback(async () => {
     const shareUrl = `https://www.moviedbr.com/video/${videoId}`;
-    try {
-      await api.videos.share(videoId || '');
-    } catch {
-      console.log('[VideoPlayer] Share tracking failed');
-    }
-    Alert.alert('Share Video', `Share this video:\n${shareUrl}`);
+    try { await api.videos.share(videoId || ''); } catch {}
+    Alert.alert('Share', shareUrl);
   }, [videoId]);
 
   const handleWhatsAppShare = useCallback(async () => {
     const videoUrl = `https://www.moviedbr.com/video/${videoId}`;
-    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(`Check out this video: ${video?.title || 'Video'}\n${videoUrl}`)}`;
-    
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(`Check out this video: ${videoUrl}`)}`;
     try {
       const supported = await Linking.canOpenURL(whatsappUrl);
-      if (supported) {
-        await Linking.openURL(whatsappUrl);
-      } else {
-        Alert.alert('WhatsApp Not Installed', 'Please install WhatsApp to share videos.');
-      }
+      if (supported) await Linking.openURL(whatsappUrl);
+      else Alert.alert('Error', 'WhatsApp not installed');
     } catch {
       Alert.alert('Error', 'Failed to open WhatsApp');
     }
-  }, [videoId, video?.title]);
+  }, [videoId]);
 
   const handleChannelPress = useCallback(() => {
     const targetUserId = channel?.user_id || video?.user?.id;
     if (targetUserId) {
-      console.log('[VideoPlayer] Navigating to user profile:', targetUserId);
       router.push({ pathname: '/user/[userId]', params: { userId: targetUserId } });
     }
   }, [channel?.user_id, video?.user?.id]);
 
   const handleRecommendedPress = useCallback((recVideoId: string) => {
-    console.log('[VideoPlayer] Opening recommended video:', recVideoId);
     hasTrackedView.current = false;
     stopTracking();
     router.setParams({ videoId: recVideoId });
   }, [stopTracking]);
 
-  const formatViews = (views: number) => {
+  const formatViewsDisplay = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
     if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
     return views.toString();
@@ -494,9 +362,8 @@ export default function VideoPlayerScreen() {
   if (isLoadingVideo) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <Stack.Screen options={{ title: '', headerShown: true, headerTransparent: true, headerTintColor: Colors.text }} />
+        <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading video...</Text>
       </View>
     );
   }
@@ -504,7 +371,7 @@ export default function VideoPlayerScreen() {
   if (!video) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <Stack.Screen options={{ title: '', headerShown: true, headerTransparent: true, headerTintColor: Colors.text }} />
+        <Stack.Screen options={{ headerShown: false }} />
         <Text style={styles.errorText}>Video not found</Text>
         <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
           <Text style={styles.retryButtonText}>Go Back</Text>
@@ -514,62 +381,43 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
-  const channelName = channel?.name || video.channel?.name || video.user?.channel_name || video.user?.name || 'Channel';
-  const channelAvatar = getMediaUrl(channel?.avatar || video.channel?.avatar || video.user?.avatar);
-  const subscriberCount = channel?.subscribers_count ?? video.channel?.subscribers_count ?? video.user?.followers_count ?? 0;
-  const isChannelVerified = channel?.is_verified || video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
+  const channelName = channel?.name || video.channel?.name || video.user?.channel_name || 'Channel';
+  
+  // --- ISSUE 2 FIX: FALLBACK LOGIC ---
+  const channelAvatar = getMediaUrl(channel?.avatar || video.channel?.avatar || 'assets/c_profile.jpg');
+  
+  const subscriberCount = channel?.subscribers_count ?? video.channel?.subscribers_count ?? 0;
+  const isChannelVerified = channel?.is_verified || video.channel?.is_verified || false;
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen options={{ title: '', headerShown: true, headerTransparent: true, headerTintColor: Colors.text }} />
+    // --- ISSUE 5 FIX: Padding Top for Status Bar ---
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
+      {/* --- ISSUE 4 FIX: STICKY VIDEO PLAYER --- 
+          Video ko ScrollView se bahar nikal diya taaki wo upar chipka rahe. 
+      */}
+      <View style={styles.playerContainer}>
+        <ExpoVideo
+          ref={videoRef}
+          source={{ uri: videoUrl }}
+          style={styles.player}
+          resizeMode={ResizeMode.CONTAIN}
+          // --- ISSUE 1 FIX: YOUTUBE CONTROLS (Seekbar, Time, Fullscreen) ---
+          useNativeControls={true} 
+          shouldPlay={isPlaying}
+          isLooping={false}
+          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+        />
+      </View>
+
+      {/* Baaki ka content ab is ScrollView ke andar hai */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
-        <View style={styles.playerContainer}>
-          <ExpoVideo
-            ref={videoRef}
-            source={{ uri: videoUrl }}
-            style={styles.player}
-            resizeMode={ResizeMode.CONTAIN}
-            useNativeControls={Platform.OS !== 'web'}
-            shouldPlay={isPlaying}
-            isLooping={false}
-            onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-            onError={(error) => console.error('[VideoPlayer] Playback error:', error)}
-          />
-          
-          <View style={styles.doubleTapOverlay}>
-            <Pressable style={styles.doubleTapZone} onPress={handleTapLeft}>
-              {seekIndicator === 'left' && (
-                <Animated.View style={[styles.seekIndicator, { opacity: seekAnimLeft }]}>
-                  <Text style={styles.seekText}>-10s</Text>
-                </Animated.View>
-              )}
-            </Pressable>
-            <Pressable style={styles.doubleTapCenter} onPress={handleShowControls}>
-              {showControls && (
-                <TouchableOpacity style={styles.playPauseButton} onPress={handleTogglePlay}>
-                  {isPlaying ? (
-                    <Pause color={Colors.text} size={40} fill={Colors.text} />
-                  ) : (
-                    <Play color={Colors.text} size={40} fill={Colors.text} />
-                  )}
-                </TouchableOpacity>
-              )}
-            </Pressable>
-            <Pressable style={styles.doubleTapZone} onPress={handleTapRight}>
-              {seekIndicator === 'right' && (
-                <Animated.View style={[styles.seekIndicator, { opacity: seekAnimRight }]}>
-                  <Text style={styles.seekText}>+10s</Text>
-                </Animated.View>
-              )}
-            </Pressable>
-          </View>
-        </View>
-
+        
         <View style={styles.videoDetails}>
           <Text style={styles.videoTitle}>{video.title || video.caption || 'Untitled Video'}</Text>
           <Text style={styles.videoStats}>
-            {formatViews(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
+            {formatViewsDisplay(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
           </Text>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsContainer}>
@@ -580,7 +428,7 @@ export default function VideoPlayerScreen() {
                 size={22}
               />
               <Text style={[styles.actionText, isLiked && styles.actionTextActive]}>
-                {formatViews(likes)}
+                {formatViewsDisplay(likes)}
               </Text>
             </TouchableOpacity>
 
@@ -674,6 +522,7 @@ export default function VideoPlayerScreen() {
         </View>
       </ScrollView>
 
+      {/* --- COMMENTS MODAL (Same as before) --- */}
       <Modal
         visible={showCommentsModal}
         animationType="slide"
@@ -733,6 +582,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+    // paddingTop is now handled dynamically via insets style
   },
   centerContent: {
     justifyContent: 'center',
@@ -763,49 +613,14 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     aspectRatio: 16 / 9,
     backgroundColor: '#000',
-    position: 'relative',
+    // Position relative nahi chahiye ab sticky ke liye
   },
   player: {
     width: '100%',
     height: '100%',
   },
-  doubleTapOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-  },
-  doubleTapZone: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  doubleTapCenter: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playPauseButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  seekIndicator: {
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  seekText: {
-    color: Colors.text,
-    fontSize: 18,
-    fontWeight: '700' as const,
-  },
+  // Double tap styles removed/hidden because we are using Native Controls
+  
   videoDetails: {
     padding: 16,
     borderBottomWidth: 1,
