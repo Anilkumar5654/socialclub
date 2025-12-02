@@ -29,7 +29,6 @@ import {
   Platform,
   Switch,
 } from 'react-native';
-// ⚠️ FIX: Ensure all imports are correct and separated by commas
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
@@ -37,23 +36,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
 
 // --- NEW HOOK: FETCH CHANNEL MONETIZATION STATUS ---
+// 🔥 FIX: Connect to the actual API endpoint /api/channels/details
 const useMonetizationStatus = (userId: string | undefined) => {
     return useQuery({
-        queryKey: ['channelMonetizationStatus', userId],
+        queryKey: ['channelDetailsMonetization', userId],
         queryFn: async () => {
-            if (!userId) return { monetization_status: 'PENDING', is_monetization_enabled: false };
-            
-            // ⚠️ MOCK/PLACEHOLDER FOR TESTING: If the real API call fails/is slow, use this
-            // const response = await api.channels.getMonetizationStatus(); 
-            // return response.data; 
+            if (!userId) return null;
 
-            // Using Mock Data to ensure the app doesn't crash on this non-critical path
-            return new Promise((resolve) => setTimeout(() => {
-                resolve({ 
-                    monetization_status: 'APPROVED', // Change to 'PENDING' to test eligibility logic
-                    is_monetization_enabled: true 
-                });
-            }, 500)); 
+            // ⚠️ FIX: Calling the actual channel details API. We omit 'id' so backend fetches the user's channel.
+            // Assuming your api object has a 'channels' property with a details method
+            const response = await api.channels.details({ user_id: userId }); 
+            
+            // Extract monetization data from the channel object
+            if (response.success && response.channel && response.channel.monetization) {
+                 return response.channel.monetization;
+            }
+            
+            // Default safe return if API fails or status is not exposed (non-owner view)
+            return { status: 'PENDING', is_enabled: false };
         },
         enabled: !!userId,
         staleTime: 1000 * 60 * 5, 
@@ -94,9 +94,9 @@ export default function VideoUploadScreen() {
 
   // Determine if monetization option should be shown
   const isMonetizationEligible = useMemo(() => {
-    if (!monetizationStatus) return false;
-    const status = monetizationStatus.monetization_status;
-    const isEnabled = monetizationStatus.is_monetization_enabled;
+    if (!monetizationStatus || monetizationStatus.status === 'NA') return false;
+    const status = monetizationStatus.status;
+    const isEnabled = monetizationStatus.is_enabled;
     
     // Eligibility Logic: Must be 'APPROVED' or 'ELIGIBLE' AND enabled at channel level
     return (status === 'APPROVED' || status === 'ELIGIBLE') && isEnabled;
