@@ -41,21 +41,17 @@ const useMonetizationStatus = () => {
         queryKey: ['channelDetailsMonetization'],
         queryFn: async () => {
             // 🔥 FIX 1: Send id='0' so PHP detects "My Channel" automatically
-            // PHP Logic: if id==0 && token_exists -> Fetch Owner Channel
             const response = await api.channels.getChannel('0'); 
             
             if (response.success && response.channel) {
-                 // 🔥 FIX 2: Read FLATTENED fields (Backend structure match)
+                 // 🔥 FIX 2: Read FLATTENED fields
                  return {
                     status: response.channel.monetization_status, // e.g. 'APPROVED'
                     is_enabled: response.channel.is_monetization_enabled // boolean
                  };
             }
-            
-            // Default return if something fails
             return { status: 'PENDING', is_enabled: false };
         },
-        // Cache this for a while since status doesn't change every second
         staleTime: 1000 * 60 * 5, 
     });
 };
@@ -101,7 +97,6 @@ export default function VideoUploadScreen() {
     const isEnabled = monetizationStatus.is_enabled; 
     
     // Eligibility Logic: Must be 'APPROVED' AND enabled at channel level
-    // Note: status might be string '1' or '0' depending on some DBs, but PHP sends 'APPROVED'
     return (status === 'APPROVED') && isEnabled;
   }, [monetizationStatus]);
 
@@ -165,8 +160,6 @@ export default function VideoUploadScreen() {
       formData.append('tags', finalTags.join(',')); 
       
       // 🔥 FIX 4: Send the monetization flag correctly
-      // Frontend decides 1 or 0 based on user switch, BUT only if eligible.
-      // Backend (upload.php) will TRIPLE check this anyway.
       if (isMonetizationEligible) {
           formData.append('monetization_enabled', monetize ? '1' : '0');
       } else {
@@ -493,7 +486,7 @@ const styles = StyleSheet.create({
   thumbnailUploadHint: { fontSize: 12, color: Colors.textSecondary },
   thumbnailPreview: { gap: 12 },
   thumbnailImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: Colors.surface },
-  changeThumbnailButton: { paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, alignItems: 'center },
+  changeThumbnailButton: { paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' }, // ✅ Corrected Line
   changeThumbnailButtonText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   categoryScroll: { marginTop: 8 },
   categoryChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, marginRight: 8 },
