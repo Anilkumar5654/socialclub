@@ -31,12 +31,23 @@ import { useQueries, useQuery, useMutation, useQueryClient } from '@tanstack/rea
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { formatTimeAgo } from '@/constants/timeFormat';
+import { formatTimeAgo } from '@/constants/formatTimeAgo'; // Assuming this utility exists
 
 const { width } = Dimensions.get('window');
 
-// --- HELPER COMPONENTS ---
+// --- INTERFACES (Re-defined for clarity) ---
+interface CreatorStats {
+  total_followers: number;
+  total_views: number;
+  total_likes: number;
+  engagement_rate: number;
+  monthly_growth?: { followers: number; views: number; engagement: number; };
+  watch_time_minutes: number;
+}
+interface Earnings { total_earnings: number; pending_earnings: number; paid_earnings: number; ad_revenue: number; reels_bonus: number; period: string; }
+interface ChannelData { id: string; name: string; subscribers_count: number; }
 
+// --- HELPER COMPONENTS ---
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
   const isPositive = change?.startsWith('+');
 
@@ -64,7 +75,6 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
   };
 
   const thumbnailUri = getMediaUrl(item.thumbnail_url || item.thumbnailUrl || item.images?.[0]);
-  // Use 'title' for videos, 'caption' or 'content' for posts/reels
   const title = item.title || item.caption || item.content || 'Untitled Content';
   const views = item.views || 0;
   const likes = item.likes || 0;
@@ -79,11 +89,7 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
   return (
     <TouchableOpacity style={styles.contentItem} onPress={onPress}>
       <View style={styles.contentThumbnailContainer}>
-        <Image
-          source={{ uri: thumbnailUri }}
-          style={styles.contentThumbnail}
-          contentFit="cover"
-        />
+        <Image source={{ uri: thumbnailUri }} style={styles.contentThumbnail} contentFit="cover" />
         {type !== 'post' && viralScore !== undefined && (
           <View style={styles.viralScoreBadge}>
             <Text style={styles.viralScoreText}>Score {viralScore.toFixed(0)}</Text>
@@ -91,9 +97,7 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
         )}
       </View>
       <View style={styles.contentInfo}>
-        <Text style={styles.contentTitle} numberOfLines={2}>
-          {title}
-        </Text>
+        <Text style={styles.contentTitle} numberOfLines={2}>{title}</Text>
         <View style={styles.contentStats}>
           <View style={styles.contentStat}>
             <Eye color={Colors.textSecondary} size={14} />
@@ -131,8 +135,9 @@ export default function CreatorStudioScreen() {
   });
 
   const hasChannel = channelCheck?.has_channel || false;
-  const channelData = channelCheck?.data || null;
+  const channelData = channelCheck?.data as ChannelData | null || null;
 
+  // Fetch Stats, Earnings, and Content concurrently if channel exists
   const results = useQueries({
     queries: [
       { queryKey: ['creator-stats'], queryFn: api.creator.getStats, enabled: hasChannel },
@@ -147,8 +152,8 @@ export default function CreatorStudioScreen() {
 
   const isTotalLoading = loadingChannel || statsRes.isLoading || earningsRes.isLoading || postsRes.isLoading || reelsRes.isLoading || videosRes.isLoading;
 
-  const stats = statsRes.data?.stats;
-  const earnings = earningsRes.data?.earnings;
+  const stats = statsRes.data?.stats as CreatorStats | null;
+  const earnings = earningsRes.data?.earnings as Earnings | null;
   const posts = postsRes.data?.content || [];
   const reels = reelsRes.data?.content || [];
   const videos = videosRes.data?.content || [];
@@ -189,7 +194,8 @@ export default function CreatorStudioScreen() {
     if (type === 'post') {
       router.push(`/post/${id}`);
     } else if (type === 'reel') {
-      router.push('/reels');
+      // Re-route to the main reels page
+      router.push('/(tabs)/reels'); 
     } else if (type === 'video') {
       router.push(`/video-analytics?videoId=${id}`);
     }
@@ -333,7 +339,7 @@ export default function CreatorStudioScreen() {
               </View>
             </View>
             
-            {/* Latest Content Section (Fixed Data) */}
+            {/* Latest Content Section */}
             <View style={styles.section}>
                 <Text style={styles.sectionHeading}>Latest Published Content</Text>
                 
@@ -446,9 +452,8 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 28, fontWeight: 'bold', color: Colors.text, marginBottom: 4, },
   statChangeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statChange: { fontSize: 12, color: Colors.textMuted, },
+  statChangeLabel: { fontSize: 12, color: Colors.textSecondary },
   statChangePositive: { color: Colors.success, },
-
-  // Content List Styles
   contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
   contentThumbnailContainer: { width: 120, aspectRatio: 16 / 9, },
   contentThumbnail: { width: '100%', height: '100%', borderRadius: 8, backgroundColor: Colors.surface, },
@@ -460,8 +465,6 @@ const styles = StyleSheet.create({
   contentStat: { flexDirection: 'row', alignItems: 'center', gap: 4, },
   contentStatText: { fontSize: 12, color: Colors.textSecondary, },
   contentDate: { fontSize: 11, color: Colors.textMuted, },
-  
-  // Earnings Styles
   earningsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 32, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: Colors.border, },
   totalEarnings: { fontSize: 48, fontWeight: '700' as const, color: Colors.success, },
   earningsBreakdown: { marginTop: 16, gap: 12, },
@@ -470,14 +473,10 @@ const styles = StyleSheet.create({
   earningsValue: { fontSize: 16, fontWeight: '600' as const, color: Colors.text, },
   withdrawButton: { backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: 12, },
   withdrawButtonText: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, },
-  
-  // Channel Header Styles
   channelInfoSection: { padding: 16, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border, },
   channelHeader: { gap: 4, },
   channelName: { fontSize: 20, fontWeight: '700' as const, color: Colors.text, },
   channelStats: { fontSize: 14, color: Colors.textSecondary, },
-
-  // Empty/Create Channel Styles
   noChannelTitle: { fontSize: 24, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8, textAlign: 'center', },
   noChannelSubtitle: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 32, paddingHorizontal: 16, },
   createChannelButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, },
@@ -495,6 +494,9 @@ const styles = StyleSheet.create({
   cancelButton: { paddingVertical: 12, alignItems: 'center', },
   cancelButtonText: { fontSize: 15, fontWeight: '600' as const, color: Colors.textSecondary, },
   refreshButton: { padding: 8, },
+  centerContent: { justifyContent: 'center', alignItems: 'center', padding: 32, },
+  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16, },
+  noDataText: { textAlign: 'center', color: Colors.textSecondary, marginTop: 30, },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12, },
   emptyTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.text, marginTop: 8, },
   emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', },
