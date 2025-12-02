@@ -26,7 +26,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/colors';
 import { api, MEDIA_BASE_URL } from '@/services/api'; 
 import { useAuth } from '@/contexts/AuthContext';
-import { formatTimeAgo } from '@/constants/timeFormat'; 
+import { formatTimeAgo } from '@/constants/timeFormat';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -51,7 +51,7 @@ interface ContentItem {
   title?: string;
   caption?: string;
   views?: number;
-  duration?: string | number; // Updated to handle number or string
+  duration?: string | number;
   created_at?: string;
   thumbnail_url?: string;
   thumbnailUrl?: string;
@@ -71,16 +71,13 @@ const getImageUri = (uri: string | undefined) => {
     return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
 };
 
-// FIX 2: Duration formatting function (handles seconds to MM:SS)
 const formatDuration = (duration: string | number | undefined): string => {
     if (!duration) return '00:00';
     
-    // Check if duration is already in HH:MM:SS or MM:SS format (string)
     if (typeof duration === 'string' && duration.includes(':')) {
         return duration;
     }
     
-    // Assume duration is in seconds (number or string representation of a number)
     const seconds = Number(duration);
     if (isNaN(seconds)) return '00:00';
 
@@ -97,14 +94,21 @@ function ChannelVideoCard({ item, type }: { item: ContentItem; type: 'videos' | 
     const isReel = type === 'reels';
     
     const handlePress = () => {
-        // FIX 3: Ensure router.push is correct for navigation
-        const pathname = isReel ? '/reels/[reelId]' : '/video/[videoId]';
-        const paramKey = isReel ? 'reelId' : 'videoId';
+        // FIX: Using the static routes that are expected to exist in the app root
         
-        router.push({
-            pathname: pathname,
-            params: { [paramKey]: item.id },
-        });
+        if (isReel) {
+            // Navigate to the static Reels Player route
+            router.push({
+                pathname: '/reels-player', 
+                params: { reelId: item.id } 
+            });
+        } else {
+            // Navigate to the static Video Player route (as seen in VideosScreen.tsx)
+            router.push({
+                pathname: '/video-player', 
+                params: { videoId: item.id } 
+            });
+        }
     };
 
     const thumbnailUrl = getImageUri(item.thumbnailUrl || item.thumbnail_url || '');
@@ -119,7 +123,6 @@ function ChannelVideoCard({ item, type }: { item: ContentItem; type: 'videos' | 
                 />
                 {!!item.duration && (
                     <View style={styles.durationOverlay}>
-                        {/* FIX 2: Apply duration formatting */}
                         <Text style={styles.durationText}>{formatDuration(item.duration)}</Text>
                     </View>
                 )}
@@ -220,7 +223,6 @@ export default function ChannelProfileScreen() {
           options={{ 
             headerShown: true, 
             title: 'Channel', 
-            // FIX 1: Apply dark background to header
             headerStyle: { backgroundColor: Colors.background },
             headerTintColor: Colors.text,
           }} 
@@ -241,7 +243,6 @@ export default function ChannelProfileScreen() {
           options={{ 
             headerShown: true, 
             title: 'Channel', 
-            // FIX 1: Apply dark background to header
             headerStyle: { backgroundColor: Colors.background },
             headerTintColor: Colors.text,
           }} 
@@ -265,7 +266,6 @@ export default function ChannelProfileScreen() {
         options={{
           headerShown: true,
           title: profile.name || 'Channel',
-          // FIX 1: Apply dark background to header
           headerStyle: { backgroundColor: Colors.background },
           headerTintColor: Colors.text,
           headerLeft: () => (
