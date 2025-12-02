@@ -26,9 +26,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/colors';
 import { api, MEDIA_BASE_URL } from '@/services/api'; 
 import { useAuth } from '@/contexts/AuthContext';
+import { formatTimeAgo } from '@/constants/timeFormat'; // Assuming this is available
 
-const { width } = Dimensions.get('window');
-const POST_SIZE = (width - 3) / 3;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // --- TYPES ---
 interface ChannelData {
@@ -46,6 +46,71 @@ interface ChannelData {
   about_text?: string;
 }
 
+interface ContentItem {
+  id: string;
+  title?: string;
+  caption?: string;
+  views?: number;
+  duration?: string;
+  created_at?: string;
+  thumbnail_url?: string;
+  thumbnailUrl?: string;
+}
+
+const formatViewsDisplay = (views: number | undefined) => {
+    if (!views) return '0 views';
+    if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M views`;
+    if (views >= 1000) return `${(views / 1000).toFixed(1)}K views`;
+    return `${views} views`;
+};
+
+const getImageUri = (uri: string | undefined) => {
+    if (!uri) return '';
+    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+};
+
+// --- YOUTUBE STYLE LIST CARD COMPONENT ---
+function ChannelVideoCard({ item, type }: { item: ContentItem; type: 'videos' | 'reels' }) {
+    const isReel = type === 'reels';
+    
+    const handlePress = () => {
+        router.push({
+            pathname: isReel ? '/reels/[reelId]' : '/video/[videoId]',
+            params: { [isReel ? 'reelId' : 'videoId']: item.id },
+        });
+    };
+
+    const thumbnailUrl = getImageUri(item.thumbnailUrl || item.thumbnail_url || '');
+
+    return (
+        <TouchableOpacity style={styles.videoCard} onPress={handlePress} activeOpacity={0.8}>
+            <View style={styles.thumbnailContainer}>
+                <Image
+                    source={{ uri: thumbnailUrl }}
+                    style={styles.videoThumbnail}
+                    contentFit="cover"
+                />
+                {!!item.duration && (
+                    <View style={styles.durationOverlay}>
+                        <Text style={styles.durationText}>{item.duration}</Text>
+                    </View>
+                )}
+            </View>
+            <View style={styles.videoDetailsCol}>
+                <Text style={styles.videoTitle} numberOfLines={2}>
+                    {item.title || item.caption || (isReel ? 'Untitled Reel' : 'Untitled Video')}
+                </Text>
+                <Text style={styles.videoMeta} numberOfLines={1}>
+                    {formatViewsDisplay(item.views)}
+                    {' · '}
+                    {formatTimeAgo(item.created_at || '')}
+                </Text>
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+// --- MAIN SCREEN ---
 export default function ChannelProfileScreen() {
 
   const { channelId } = useLocalSearchParams<{ channelId?: string }>();
@@ -56,10 +121,9 @@ export default function ChannelProfileScreen() {
   const [activeTab, setActiveTab] = useState<'videos' | 'reels' | 'about'>('videos');
   const [isSubscribed, setIsSubscribed] = useState(false);
 
-  // --- QUERY: Channel Details (FIXED: Using getChannel) ---
+  // --- QUERY: Channel Details ---
   const { data: channelData, isLoading, isError } = useQuery({
     queryKey: ['channel-profile', resolvedChannelId],
-    // FIX 1: API call name changed from getChannelDetails to getChannel (as per api.ts)
     queryFn: () => api.channels.getChannel(resolvedChannelId), 
     enabled: resolvedChannelId.length > 0,
     select: (data) => data.channel,
@@ -68,25 +132,20 @@ export default function ChannelProfileScreen() {
   const profile: ChannelData | undefined = channelData;
   const isOwnChannel = currentUser?.id === profile?.user_id;
 
-  // --- QUERY: Channel Content (FIXED: Using api.users and relying on profile.user_id) ---
+  // --- QUERY: Channel Content (Now uses the corrected api.channels.* functions) ---
   const { data: contentData, isLoading: isLoadingContent } = useQuery({
     queryKey: ['channel-content', resolvedChannelId, activeTab],
     queryFn: async () => {
-      const userId = profile?.user_id;
-
-      if (!userId) return { videos: [], reels: [] }; 
-      
-      // FIX 2: Using api.users modules for content since api.channels lacks them
+      // Direct call to api.channels.* now possible
       if (activeTab === 'videos') {
-        return api.users.getVideos(userId, 1); 
+        return api.channels.getVideos(resolvedChannelId, 1); 
       }
       if (activeTab === 'reels') {
-        return api.users.getReels(userId, 1);
+        return api.channels.getReels(resolvedChannelId, 1);
       }
       return { videos: [], reels: [] };
     },
-    // FIX 3: Enable only when profile (and thus user_id) is available
-    enabled: !!profile?.user_id && activeTab !== 'about', 
+    enabled: resolvedChannelId.length > 0 && activeTab !== 'about', 
   });
 
   // --- MUTATION: Subscribe/Unsubscribe ---
@@ -110,14 +169,10 @@ export default function ChannelProfileScreen() {
     }
     subscribeMutation.mutate();
   };
-
-
-  const getImageUri = (uri: string) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
   
-  const content = activeTab === 'reels' ? ((contentData as any)?.reels || []) : ((contentData as any)?.videos || []);
+  const content: ContentItem[] = activeTab === 'reels' 
+    ? ((contentData as any)?.reels || []) 
+    : ((contentData as any)?.videos || []);
   
   // State Initialization
   React.useEffect(() => {
@@ -310,45 +365,21 @@ export default function ChannelProfileScreen() {
             <ActivityIndicator color={Colors.primary} />
           </View>
         ) : (
-          // --- VIDEOS / REELS GRID ---
-          <View style={styles.postsGrid}>
+          // --- VIDEOS / REELS LIST (YouTube Style) ---
+          <View style={styles.videosList}>
             {content.length === 0 ? (
-              <View style={styles.emptyPosts}>
-                <Text style={styles.emptyPostsText}>
+              <View style={styles.emptyContent}>
+                <Text style={styles.emptyContentText}>
                   {activeTab === 'reels' ? 'No reels uploaded yet' : 'No videos uploaded yet'}
                 </Text>
               </View>
             ) : (
-              content.map((item: any) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.postItem}
-                  onPress={() => {
-                    // Navigate to video or reels player screen
-                    router.push({
-                      pathname: activeTab === 'reels' ? '/reels/[reelId]' : '/video/[videoId]',
-                      params: { [activeTab === 'reels' ? 'reelId' : 'videoId']: item.id },
-                    });
-                  }}
-                >
-                  <Image
-                    source={{
-                      uri: getImageUri(
-                        item.thumbnailUrl ||
-                          item.thumbnail_url ||
-                          item.images?.[0] || 
-                          ''
-                      ),
-                    }}
-                    style={styles.postImage}
-                    contentFit="cover"
-                  />
-                  {activeTab === 'reels' && (
-                    <View style={styles.reelIndicator}>
-                      <Text style={styles.reelIndicatorText}>▶</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+              content.map((item: ContentItem) => (
+                <ChannelVideoCard 
+                    key={item.id} 
+                    item={item} 
+                    type={activeTab as 'videos' | 'reels'} 
+                />
               ))
             )}
           </View>
@@ -397,14 +428,21 @@ const styles = StyleSheet.create({
   tabActive: { borderBottomWidth: 2, borderBottomColor: Colors.primary },
   
   // Content Area
-  postsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
   postsLoadingContainer: { paddingVertical: 48, alignItems: 'center' },
-  emptyPosts: { width: '100%', paddingVertical: 64, alignItems: 'center' },
-  emptyPostsText: { fontSize: 15, color: Colors.textSecondary },
-  postItem: { width: POST_SIZE, height: POST_SIZE },
-  postImage: { width: '100%', height: '100%', backgroundColor: Colors.surface },
-  reelIndicator: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center' },
-  reelIndicatorText: { color: Colors.text, fontSize: 10, marginLeft: 2 },
+  
+  // YouTube Style List View
+  videosList: { paddingHorizontal: 0, paddingVertical: 16 },
+  videoCard: { flexDirection: 'row', marginBottom: 20, paddingHorizontal: 16 },
+  thumbnailContainer: { width: 150, height: 85, backgroundColor: Colors.surface, position: 'relative', borderRadius: 6, overflow: 'hidden' },
+  videoThumbnail: { width: '100%', height: '100%' },
+  durationOverlay: { position: 'absolute', bottom: 4, right: 4, backgroundColor: 'rgba(0, 0, 0, 0.8)', paddingHorizontal: 4, borderRadius: 3 },
+  durationText: { color: 'white', fontSize: 10, fontWeight: '600' },
+  videoDetailsCol: { flex: 1, marginLeft: 12, justifyContent: 'flex-start' },
+  videoTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, lineHeight: 20, marginBottom: 4 },
+  videoMeta: { fontSize: 13, color: Colors.textSecondary },
+
+  emptyContent: { width: '100%', paddingVertical: 64, alignItems: 'center' },
+  emptyContentText: { fontSize: 15, color: Colors.textSecondary },
 
   // About Section Styles
   aboutContainer: { padding: 16, backgroundColor: Colors.background },
