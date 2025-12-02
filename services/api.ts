@@ -39,6 +39,7 @@ class ApiClient {
     const isFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
     if (!isFormDataBody) {
+      // NOTE: This header is NOT set if the body is FormData
       headers['Content-Type'] = 'application/json';
     }
 
@@ -342,10 +343,12 @@ class ApiClient {
     unsubscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/unsubscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     
     create: async (data: any) => this.request('/channels/create', { method: 'POST', body: JSON.stringify(data) }),
-    // FIX: Changed method from 'PUT' to 'POST' for broader PHP server compatibility
-    update: async (channelId: string, data: any) => this.request(`/channels/update`, { 
+    
+    // FIX: Using the correct function name 'updateChannel' for FormData
+    // The body is FormData (which is automatically handled by the request method)
+    updateChannel: async (formData: FormData) => this.request('/channels/update', { 
         method: 'POST', 
-        body: JSON.stringify({ ...data, channel_id: channelId }) 
+        body: formData 
     }),
   };
   
