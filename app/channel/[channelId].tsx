@@ -26,7 +26,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/colors';
 import { api, MEDIA_BASE_URL } from '@/services/api'; 
 import { useAuth } from '@/contexts/AuthContext';
-import { formatTimeAgo } from '@/constants/timeFormat'; // Assuming this is available
+import { formatTimeAgo } from '@/constants/timeFormat'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -51,11 +51,13 @@ interface ContentItem {
   title?: string;
   caption?: string;
   views?: number;
-  duration?: string;
+  duration?: string | number; // Updated to handle number or string
   created_at?: string;
   thumbnail_url?: string;
   thumbnailUrl?: string;
 }
+
+// --- HELPER FUNCTIONS ---
 
 const formatViewsDisplay = (views: number | undefined) => {
     if (!views) return '0 views';
@@ -69,14 +71,39 @@ const getImageUri = (uri: string | undefined) => {
     return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
 };
 
+// FIX 2: Duration formatting function (handles seconds to MM:SS)
+const formatDuration = (duration: string | number | undefined): string => {
+    if (!duration) return '00:00';
+    
+    // Check if duration is already in HH:MM:SS or MM:SS format (string)
+    if (typeof duration === 'string' && duration.includes(':')) {
+        return duration;
+    }
+    
+    // Assume duration is in seconds (number or string representation of a number)
+    const seconds = Number(duration);
+    if (isNaN(seconds)) return '00:00';
+
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+
+    const pad = (num: number) => num.toString().padStart(2, '0');
+    
+    return `${pad(minutes)}:${pad(remainingSeconds)}`;
+};
+
 // --- YOUTUBE STYLE LIST CARD COMPONENT ---
 function ChannelVideoCard({ item, type }: { item: ContentItem; type: 'videos' | 'reels' }) {
     const isReel = type === 'reels';
     
     const handlePress = () => {
+        // FIX 3: Ensure router.push is correct for navigation
+        const pathname = isReel ? '/reels/[reelId]' : '/video/[videoId]';
+        const paramKey = isReel ? 'reelId' : 'videoId';
+        
         router.push({
-            pathname: isReel ? '/reels/[reelId]' : '/video/[videoId]',
-            params: { [isReel ? 'reelId' : 'videoId']: item.id },
+            pathname: pathname,
+            params: { [paramKey]: item.id },
         });
     };
 
@@ -92,7 +119,8 @@ function ChannelVideoCard({ item, type }: { item: ContentItem; type: 'videos' | 
                 />
                 {!!item.duration && (
                     <View style={styles.durationOverlay}>
-                        <Text style={styles.durationText}>{item.duration}</Text>
+                        {/* FIX 2: Apply duration formatting */}
+                        <Text style={styles.durationText}>{formatDuration(item.duration)}</Text>
                     </View>
                 )}
             </View>
@@ -132,11 +160,11 @@ export default function ChannelProfileScreen() {
   const profile: ChannelData | undefined = channelData;
   const isOwnChannel = currentUser?.id === profile?.user_id;
 
-  // --- QUERY: Channel Content (Now uses the corrected api.channels.* functions) ---
+  // --- QUERY: Channel Content (Uses api.channels.*) ---
   const { data: contentData, isLoading: isLoadingContent } = useQuery({
     queryKey: ['channel-content', resolvedChannelId, activeTab],
     queryFn: async () => {
-      // Direct call to api.channels.* now possible
+      // Direct call to api.channels.*
       if (activeTab === 'videos') {
         return api.channels.getVideos(resolvedChannelId, 1); 
       }
@@ -147,8 +175,8 @@ export default function ChannelProfileScreen() {
     },
     enabled: resolvedChannelId.length > 0 && activeTab !== 'about', 
   });
-
-  // --- MUTATION: Subscribe/Unsubscribe ---
+  
+  // ... (Subscribe mutation remains the same)
   const subscribeMutation = useMutation({
     mutationFn: () => isSubscribed 
         ? api.channels.unsubscribe(resolvedChannelId) 
@@ -188,7 +216,15 @@ export default function ChannelProfileScreen() {
     // Loading State
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: true, title: 'Channel' }} />
+        <Stack.Screen 
+          options={{ 
+            headerShown: true, 
+            title: 'Channel', 
+            // FIX 1: Apply dark background to header
+            headerStyle: { backgroundColor: Colors.background },
+            headerTintColor: Colors.text,
+          }} 
+        />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.loadingText}>Loading channel...</Text>
@@ -201,7 +237,15 @@ export default function ChannelProfileScreen() {
     // Error State
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: true, title: 'Channel' }} />
+        <Stack.Screen 
+          options={{ 
+            headerShown: true, 
+            title: 'Channel', 
+            // FIX 1: Apply dark background to header
+            headerStyle: { backgroundColor: Colors.background },
+            headerTintColor: Colors.text,
+          }} 
+        />
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Failed to load channel profile</Text>
           <TouchableOpacity
@@ -221,6 +265,9 @@ export default function ChannelProfileScreen() {
         options={{
           headerShown: true,
           title: profile.name || 'Channel',
+          // FIX 1: Apply dark background to header
+          headerStyle: { backgroundColor: Colors.background },
+          headerTintColor: Colors.text,
           headerLeft: () => (
             <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
               <ArrowLeft color={Colors.text} size={24} />
