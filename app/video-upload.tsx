@@ -15,7 +15,7 @@ import {
   DollarSign,
   MonitorPlay,
 } from 'lucide-react-native';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -40,16 +40,32 @@ const useMonetizationStatus = () => {
     return useQuery({
         queryKey: ['channelDetailsMonetization'],
         queryFn: async () => {
-            // 🔥 FIX 1: Send id='0' so PHP detects "My Channel" automatically
-            const response = await api.channels.getChannel('0'); 
-            
-            if (response.success && response.channel) {
-                 // 🔥 FIX 2: Read FLATTENED fields
-                 return {
-                    status: response.channel.monetization_status, // e.g. 'APPROVED'
-                    is_enabled: response.channel.is_monetization_enabled // boolean
-                 };
+            try {
+                // '0' bhejne se backend logged-in user ka channel uthata hai
+                const response = await api.channels.getChannel('0'); 
+                
+                // Debugging Log
+                console.log('[VideoUpload] Channel Response:', JSON.stringify(response, null, 2));
+
+                if (response.success && response.channel) {
+                     // Check both flattened fields AND nested fields (backup)
+                     const status = response.channel.monetization_status || 'PENDING';
+                     
+                     // Convert to strict boolean
+                     // Backend se 1/0 ya true/false aa sakta hai
+                     let isEnabled = response.channel.is_monetization_enabled;
+                     if (isEnabled === '1') isEnabled = true;
+                     if (isEnabled === '0') isEnabled = false;
+                     
+                     return {
+                        status: status,
+                        is_enabled: !!isEnabled // Force boolean
+                     };
+                }
+            } catch (error) {
+                console.log('[VideoUpload] Error fetching channel:', error);
             }
+            
             return { status: 'PENDING', is_enabled: false };
         },
         staleTime: 1000 * 60 * 5, 
@@ -89,15 +105,16 @@ export default function VideoUploadScreen() {
   // Fetch monetization status
   const { data: monetizationStatus, isLoading: isLoadingMonetization } = useMonetizationStatus();
 
-  // 🔥 FIX 3: Logic matched with new hook return structure
+  // 🔥 STRICT ELIGIBILITY LOGIC
   const isMonetizationEligible = useMemo(() => {
     if (!monetizationStatus) return false;
     
-    const status = monetizationStatus.status; 
-    const isEnabled = monetizationStatus.is_enabled; 
+    const { status, is_enabled } = monetizationStatus;
     
-    // Eligibility Logic: Must be 'APPROVED' AND enabled at channel level
-    return (status === 'APPROVED') && isEnabled;
+    console.log(`[VideoUpload] Eligibility Check -> Status: ${status}, Enabled: ${is_enabled}`);
+
+    // Sirf tab true hoga jab status 'APPROVED' ho AUR enabled true ho
+    return (status === 'APPROVED') && (is_enabled === true);
   }, [monetizationStatus]);
 
   // --- TAGS LOGIC ---
@@ -159,7 +176,7 @@ export default function VideoUploadScreen() {
       formData.append('allow_comments', allowComments ? '1' : '0');
       formData.append('tags', finalTags.join(',')); 
       
-      // 🔥 FIX 4: Send the monetization flag correctly
+      // ✅ DOUBLE CHECK: Backend ko '0' bhejo agar user eligible nahi hai
       if (isMonetizationEligible) {
           formData.append('monetization_enabled', monetize ? '1' : '0');
       } else {
@@ -486,7 +503,7 @@ const styles = StyleSheet.create({
   thumbnailUploadHint: { fontSize: 12, color: Colors.textSecondary },
   thumbnailPreview: { gap: 12 },
   thumbnailImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: Colors.surface },
-  changeThumbnailButton: { paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' }, // ✅ Corrected Line
+  changeThumbnailButton: { paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
   changeThumbnailButtonText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   categoryScroll: { marginTop: 8 },
   categoryChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, marginRight: 8 },
