@@ -17,6 +17,8 @@ import {
   LayoutDashboard,
   Calendar,
   MonitorPlay,
+  // ADDED: Edit Icon for Channel Management
+  Edit 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -29,11 +31,10 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
-  StatusBar, // Added to manage status bar style
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Assuming Colors, AuthContext, API, and timeFormat paths are correct
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, MEDIA_BASE_URL } from '@/services/api';
@@ -42,7 +43,7 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// HELPER COMPONENTS (LOGIC & CRASH FIX APPLIED)
+// HELPER COMPONENTS
 // ----------------------------------------------------------------
 
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
@@ -79,7 +80,6 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
       <TouchableOpacity style={styles.contentItem} onPress={onPress}>
         <View style={[styles.contentThumbnailContainer, type === 'reel' && styles.reelThumbnailContainer]}>
           
-          {/* CRASH FIX: Using View/Icon for placeholder */}
           {hasThumbnail ? (
             <Image
               source={{ uri: thumbnailUri }}
@@ -102,7 +102,6 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
           <Text style={styles.contentTitle} numberOfLines={2}>
             {title}
           </Text>
-          {/* Show full stats only when not hidden (e.g., in Content tab) */}
           {!hideStats && (
              <View style={styles.contentStats}>
                 <View style={styles.contentStat}>
@@ -140,13 +139,12 @@ interface Earnings {
 }
 
 // ----------------------------------------------------------------
-// CUSTOM FIXED HEADER COMPONENT (Header Height/Status Bar Fix)
+// CUSTOM FIXED HEADER COMPONENT
 // ----------------------------------------------------------------
 
 function CustomFixedHeader({ user, router }) {
     const insets = useSafeAreaInsets(); 
     return (
-        // 1. Header Wrapper handles SafeArea and fixes content below Status Bar
         <View style={[styles.customHeaderWrapper, { paddingTop: insets.top }]}>
             <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
             <View style={styles.customHeaderContainer}>
@@ -183,7 +181,6 @@ export default function CreatorStudioScreen() {
   
   const [activeTab, setActiveTab] = useState<'overview' | 'content' | 'earnings'>('overview');
   
-  // ... (States and Logic functions remain the same) ...
   const [isLoading, setIsLoading] = useState(true);
   const [channel, setChannel] = useState<Channel | null>(null);
   const [stats, setStats] = useState<CreatorStats | null>(null);
@@ -203,6 +200,12 @@ export default function CreatorStudioScreen() {
   
   const canWithdraw = availableEarnings >= 100;
 
+  // --- HANDLER FOR EDITING CHANNEL ---
+  const handleEditChannel = () => {
+    // Navigates to the file you just created: app/channel/edit.tsx
+    router.push('/channel/edit'); 
+  };
+  
   useEffect(() => {
     loadCreatorData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -303,6 +306,16 @@ export default function CreatorStudioScreen() {
                 {channel.subscribers_count.toLocaleString()} total subscribers
               </Text>
             </View>
+
+            {/* ✅ NEW: EDIT CHANNEL BUTTON (Fixed position next to stats) */}
+            <TouchableOpacity 
+                style={styles.editChannelButton} 
+                onPress={handleEditChannel} // <-- Calls the handler
+            >
+                <Edit color={Colors.text} size={18} />
+                <Text style={styles.editChannelButtonText}>Edit</Text>
+            </TouchableOpacity>
+            
           </View>
         )}
 
@@ -617,6 +630,7 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.background,
         borderBottomWidth: 1,
         borderBottomColor: Colors.border,
+        justifyContent: 'space-between', // Align items horizontally
     },
     channelAvatar: {
         width: 60,
@@ -628,8 +642,9 @@ const styles = StyleSheet.create({
         borderColor: Colors.border,
     },
     channelHeaderInfo: {
-        flex: 1,
+        flex: 1, // Take up most space
         justifyContent: 'center',
+        marginRight: 10, // Space before edit button
     },
     channelName: {
         fontSize: 24,
@@ -640,6 +655,24 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: Colors.textSecondary,
         marginTop: 4,
+    },
+    // NEW: Edit Channel Button Styles
+    editChannelButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: Colors.surface,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        alignSelf: 'flex-start', // Prevent button from stretching
+    },
+    editChannelButtonText: {
+        color: Colors.text,
+        fontWeight: '600',
+        fontSize: 14,
     },
     
     // CONTENT STYLES
