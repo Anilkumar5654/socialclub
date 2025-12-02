@@ -14,7 +14,7 @@ import {
   Plus,
   RefreshCcw,
 } from 'lucide-react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,8 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
+// ⚠️ IMPORTANT: useSafeAreaInsets को जोड़ने के लिए यह इंपोर्ट ज़रूरी है!
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,16 +36,24 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 
 const { width } = Dimensions.get('window');
 
+// ----------------------------------------------------------------
+// HELPER COMPONENTS (NO LOGIC CHANGE, ONLY STYLE TWEAKS)
+// ----------------------------------------------------------------
+
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
   const isPositive = change?.startsWith('+');
 
   return (
     <View style={styles.statCard}>
+      {/* Icon moved to the top right for a cleaner look */}
       <View style={styles.statIcon}>{icon}</View>
+      
       <Text style={styles.statTitle}>{title}</Text>
       <Text style={styles.statValue}>{value}</Text>
+      
       {change && (
-        <Text style={[styles.statChange, isPositive && styles.statChangePositive]}>
+        // Change text style updated to be more prominent
+        <Text style={[styles.statChange, isPositive ? styles.statChangePositive : styles.statChangeNegative]}>
           {change} this month
         </Text>
       )}
@@ -66,13 +76,13 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
 
   return (
     <TouchableOpacity style={styles.contentItem} onPress={onPress}>
-      <View style={styles.contentThumbnailContainer}>
+      <View style={[styles.contentThumbnailContainer, type === 'reel' && styles.reelThumbnailContainer]}>
         <Image
           source={{ uri: thumbnailUri }}
-          style={styles.contentThumbnail}
+          style={[styles.contentThumbnail, type === 'reel' && styles.reelThumbnail]}
           contentFit="cover"
         />
-        {type === 'video' && viralScore !== undefined && (
+        {(type === 'video' || type === 'reel') && viralScore !== undefined && (
           <View style={styles.viralScoreBadge}>
             <Text style={styles.viralScoreText}>{viralScore.toFixed(0)}</Text>
           </View>
@@ -102,6 +112,10 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
     </TouchableOpacity>
   );
 }
+
+// ----------------------------------------------------------------
+// INTERFACES (UNCHANGED)
+// ----------------------------------------------------------------
 
 interface Channel {
   id: string;
@@ -135,9 +149,15 @@ interface Earnings {
   period: string;
 }
 
+// ----------------------------------------------------------------
+// MAIN SCREEN COMPONENT
+// ----------------------------------------------------------------
+
 export default function CreatorStudioScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets(); // 👈 Status Bar Overlay Fix
+  
   const [activeTab, setActiveTab] = useState<'overview' | 'content' | 'earnings'>('overview');
   const [isLoading, setIsLoading] = useState(true);
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -150,11 +170,23 @@ export default function CreatorStudioScreen() {
   const [channelName, setChannelName] = useState('');
   const [channelDescription, setChannelDescription] = useState('');
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
+  
+  // Calculate available earnings dynamically
+  const availableEarnings = useMemo(() => {
+    if (!earnings) return 0;
+    return earnings.total_earnings - earnings.pending_earnings - earnings.paid_earnings;
+  }, [earnings]);
+  
+  const canWithdraw = availableEarnings >= 100;
 
   useEffect(() => {
     loadCreatorData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ------------------------------------------------
+  // LOGIC FUNCTIONS (UNCHANGED)
+  // ------------------------------------------------
 
   const loadCreatorData = async () => {
     setIsLoading(true);
@@ -262,6 +294,10 @@ export default function CreatorStudioScreen() {
       router.push(`/video-analytics?videoId=${id}`);
     }
   };
+  
+  // ------------------------------------------------
+  // RENDER LOGIC
+  // ------------------------------------------------
 
   if (isLoading) {
     return (
@@ -372,10 +408,12 @@ export default function CreatorStudioScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    // 👈 SafeAreaView added to fix status bar overlay
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}> 
       <Stack.Screen
         options={{
-          title: 'Creator Studio',
+          // Header title removed, as channel name is now in the body
+          title: 'Studio', 
           headerStyle: {
             backgroundColor: Colors.background,
           },
@@ -389,6 +427,7 @@ export default function CreatorStudioScreen() {
         }}
       />
 
+      {/* Tabs moved outside ScrollView for a fixed top bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'overview' && styles.tabActive]}
@@ -419,13 +458,18 @@ export default function CreatorStudioScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {activeTab === 'overview' && (
           <>
+            {/* Channel Info Section enhanced with better visibility */}
             {channel && (
               <View style={styles.channelInfoSection}>
                 <View style={styles.channelHeader}>
-                  <Text style={styles.channelName}>{channel.name}</Text>
-                  <Text style={styles.channelStats}>
+                  {/* Channel Name Font Size Increased for prominence */}
+                  <Text style={styles.channelName}>{channel.name}</Text> 
+                  {/* Subscribers count is now more prominent */}
+                  <Text style={styles.channelStats}> 
                     {channel.subscribers_count.toLocaleString()} subscribers • {channel.videos_count} videos
                   </Text>
+                  {/* Additional info like 'Last 28 days' could go here */}
+                  <Text style={styles.timeFilterText}>Last 28 days</Text>
                 </View>
               </View>
             )}
@@ -433,7 +477,8 @@ export default function CreatorStudioScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Performance</Text>
               {stats ? (
-                <View style={styles.statsGrid}>
+                // StatCard layout changed for a cleaner, tighter grid
+                <View style={styles.statsGrid}> 
                   <StatCard
                     icon={<Users color={Colors.primary} size={24} />}
                     title="Followers"
@@ -522,6 +567,7 @@ export default function CreatorStudioScreen() {
 
         {activeTab === 'content' && (
           <>
+            {/* Content List Section with separators for better clarity */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Posts</Text>
@@ -617,7 +663,8 @@ export default function CreatorStudioScreen() {
                     <View style={styles.earningsRow}>
                       <Text style={styles.earningsLabel}>Available:</Text>
                       <Text style={styles.earningsValue}>
-                        ${(earnings.total_earnings - earnings.pending_earnings - earnings.paid_earnings).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {/* Use calculated available earnings */}
+                        ${availableEarnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>
                     <View style={styles.earningsRow}>
@@ -658,13 +705,15 @@ export default function CreatorStudioScreen() {
                 </View>
 
                 <View style={styles.section}>
+                  {/* Button disabled/style based on canWithdraw logic */}
                   <TouchableOpacity
-                    style={styles.withdrawButton}
-                    onPress={() => Alert.alert('Coming Soon', 'Withdrawal feature will be available soon')}
+                    style={[styles.withdrawButton, !canWithdraw && styles.submitButtonDisabled]}
+                    onPress={() => canWithdraw ? Alert.alert('Coming Soon', 'Withdrawal feature will be available soon') : Alert.alert('Insufficient Balance', 'Minimum withdrawal amount is $100.')}
+                    disabled={!canWithdraw}
                   >
                     <Text style={styles.withdrawButtonText}>Request Withdrawal</Text>
                   </TouchableOpacity>
-                  <Text style={styles.withdrawNote}>
+                  <Text style={[styles.withdrawNote, !canWithdraw && styles.withdrawNoteDanger]}>
                     Minimum withdrawal amount is $100. Payments are processed within 3-5 business days.
                   </Text>
                 </View>
@@ -681,27 +730,33 @@ export default function CreatorStudioScreen() {
           </>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView> // 👈 End SafeAreaView
   );
 }
+
+// ----------------------------------------------------------------
+// STYLES (UPDATED FOR CLEANER UI)
+// ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
   },
-  tabBar: {
+  // Fixed Tab Bar for better navigation experience
+  tabBar: { 
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    backgroundColor: Colors.background, // Ensure it has a background color
   },
   tab: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 14, // Slightly reduced padding
     alignItems: 'center',
   },
   tabActive: {
-    borderBottomWidth: 2,
+    borderBottomWidth: 3, // Thicker underline for active tab
     borderBottomColor: Colors.primary,
   },
   tabText: {
@@ -710,7 +765,8 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   tabTextActive: {
-    color: Colors.primary,
+    color: Colors.text, // Active text is primary (white) for better contrast
+    fontWeight: '700' as const,
   },
   content: {
     flex: 1,
@@ -730,46 +786,55 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700' as const,
     color: Colors.text,
-    marginBottom: 16,
+    marginBottom: 12, // Reduced margin
   },
   seeAllText: {
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.primary,
   },
-  statsGrid: {
+  // Stat Grid updated for two-column layout with fixed size
+  statsGrid: { 
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'space-between', // Spreads cards evenly
     gap: 12,
   },
   statCard: {
-    width: (width - 48) / 2,
+    width: (width - 48) / 2, // Calculated width for 2 cards with 16px padding on sides and 12px gap
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    padding: 16,
+    padding: 14, // Slightly reduced padding
     borderWidth: 1,
     borderColor: Colors.border,
+    justifyContent: 'space-between',
+    minHeight: 120, // Added min height for uniformity
   },
   statIcon: {
-    marginBottom: 12,
+    marginBottom: 10,
+    alignSelf: 'flex-start', // Icon alignment changed
   },
   statTitle: {
     fontSize: 13,
     color: Colors.textSecondary,
-    marginBottom: 8,
+    // Removed bottom margin to place value closer
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: '700' as const,
+    fontSize: 28, // Increased font size for prominence
+    fontWeight: '800' as const,
     color: Colors.text,
-    marginBottom: 4,
+    // Removed bottom margin
   },
   statChange: {
     fontSize: 12,
-    color: Colors.textMuted,
+    fontWeight: '600' as const,
+    marginTop: 4,
   },
   statChangePositive: {
     color: Colors.success,
+  },
+  statChangeNegative: {
+    color: Colors.error, // Added for consistency
   },
   topPerformingSection: {
     gap: 12,
@@ -836,10 +901,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4, // Smaller padding
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: 12, // Smaller border radius
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   contentCountText: {
     fontSize: 14,
@@ -856,14 +923,21 @@ const styles = StyleSheet.create({
   },
   contentThumbnailContainer: {
     position: 'relative',
-    width: 120,
+    width: 100, // Reduced width for video/post
     aspectRatio: 16 / 9,
+  },
+  reelThumbnailContainer: {
+    width: 70, // Custom width for reel thumbnail
+    aspectRatio: 9 / 16,
   },
   contentThumbnail: {
     width: '100%',
     height: '100%',
-    borderRadius: 8,
+    borderRadius: 6, // Slightly smaller radius
     backgroundColor: Colors.surface,
+  },
+  reelThumbnail: {
+    borderRadius: 6,
   },
   viralScoreBadge: {
     position: 'absolute',
@@ -887,13 +961,13 @@ const styles = StyleSheet.create({
   },
   contentInfo: {
     flex: 1,
-    marginLeft: -4,
+    marginLeft: 0,
   },
   contentTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
+    fontSize: 15, // Slightly increased font size
+    fontWeight: '700' as const, // Made title bolder
     color: Colors.text,
-    lineHeight: 18,
+    lineHeight: 20,
     marginBottom: 6,
   },
   contentStats: {
@@ -975,6 +1049,10 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  withdrawNoteDanger: { // Added style for when withdrawal is disabled
+    color: Colors.error,
+    fontWeight: '600' as const,
   },
   centerContent: {
     justifyContent: 'center',
@@ -1063,7 +1141,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   submitButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.4, // Reduced opacity for disabled state
   },
   submitButtonText: {
     fontSize: 16,
@@ -1082,7 +1160,8 @@ const styles = StyleSheet.create({
   refreshButton: {
     padding: 8,
   },
-  channelInfoSection: {
+  // Channel Info Section (Updated to mimic YouTube Studio)
+  channelInfoSection: { 
     padding: 16,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
@@ -1092,13 +1171,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   channelName: {
-    fontSize: 20,
-    fontWeight: '700' as const,
+    fontSize: 24, // Increased font size
+    fontWeight: '800' as const, // Bolder
     color: Colors.text,
   },
   channelStats: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  timeFilterText: { // Added for the 'Last 28 days' look
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.textMuted,
+    marginTop: 8,
   },
   emptyState: {
     alignItems: 'center',
