@@ -767,7 +767,7 @@ const styles = StyleSheet.create({
     withdrawNote: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18 },
     withdrawNoteDanger: { color: Colors.error, fontWeight: '600' as const },
     earningsBreakdown: { marginTop: 16, gap: 12 },
-    earningsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center },
+    earningsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     earningsLabel: { fontSize: 15, color: Colors.textSecondary },
     earningsValue: { fontSize: 16, fontWeight: '600' as const, color: Colors.text },
     
