@@ -1,5 +1,5 @@
 import { ApiLogger } from '@/app/api-debug';
-import { getDeviceId } from '@/utils/deviceId'; // Direct import to prevent hanging
+import { getDeviceId } from '@/utils/deviceId';
 
 const API_BASE_URL = 'https://moviedbr.com/api';
 const MEDIA_BASE_URL = 'https://moviedbr.com/upload';
@@ -317,9 +317,15 @@ class ApiClient {
     
     getFollowers: async (userId: string, page: number = 1) => this.request(`/users/followers?user_id=${userId}&page=${page}`),
     getFollowing: async (userId: string, page: number = 1) => this.request(`/users/following?user_id=${userId}&page=${page}`),
-    getPosts: async (userId: string, page: number = 1) => this.request(`/users/posts?user_id=${userId}&page=${page}`),
-    getReels: async (userId: string, page: number = 1) => this.request(`/users/reels?user_id=${userId}&page=${page}`),
-    getVideos: async (userId: string, page: number = 1) => this.request(`/users/videos?user_id=${userId}&page=${page}`),
+    getPosts: async (userId: string, page: number = 1) => this.request<{ posts: any[]; hasMore: boolean }>(`/users/posts?user_id=${userId}&page=${page}`),
+    
+    // FIX: Added specific return types for content fetching to match component expectation
+    getReels: async (userId: string, page: number = 1) => {
+      return this.request<{ reels: any[]; hasMore: boolean }>(`/users/reels?user_id=${userId}&page=${page}`);
+    },
+    getVideos: async (userId: string, page: number = 1) => {
+      return this.request<{ videos: any[]; hasMore: boolean }>(`/users/videos?user_id=${userId}&page=${page}`);
+    },
   };
 
   channels = {
