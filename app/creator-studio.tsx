@@ -227,6 +227,7 @@ function CustomFixedHeader({ user, router, avatarUrl, onUploadPress }: { user: a
 export default function CreatorStudioScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   
   const [activeTab, setActiveTab] = useState<'overview' | 'content' | 'earnings'>('overview');
   
@@ -731,7 +732,7 @@ const styles = StyleSheet.create({
     analyticsStatTitle: { fontSize: 14, color: Colors.textSecondary },
     statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 16 },
     statCard: { width: (width - 48) / 2, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border, justifyContent: 'space-between', minHeight: 120 },
-    statIcon: { marginBottom: 10, alignSelf: 'flex-start' }, // Corrected property here
+    statIcon: { marginBottom: 10, alignSelf: 'flex-start' },
     statTitle: { fontSize: 13, color: Colors.textSecondary },
     statValue: { fontSize: 28, fontWeight: '800' as const, color: Colors.text },
     statChange: { fontSize: 12, fontWeight: '600' as const, marginTop: 4 },
