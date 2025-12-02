@@ -319,7 +319,6 @@ class ApiClient {
     getFollowing: async (userId: string, page: number = 1) => this.request(`/users/following?user_id=${userId}&page=${page}`),
     getPosts: async (userId: string, page: number = 1) => this.request<{ posts: any[]; hasMore: boolean }>(`/users/posts?user_id=${userId}&page=${page}`),
     
-    // FIX 1: Added specific return types for user content fetching
     getReels: async (userId: string, page: number = 1) => {
       return this.request<{ reels: any[]; hasMore: boolean }>(`/users/reels?user_id=${userId}&page=${page}`);
     },
@@ -332,7 +331,6 @@ class ApiClient {
     checkUserChannel: async (userId: string) => this.request(`/channels/check-user-channel?user_id=${userId}`),
     getChannel: async (channelId: string) => this.request<{ channel: any }>(`/channels/details?id=${channelId}`),
     
-    // FIX 2: Added missing channel content fetching functions pointing to correct endpoints
     getVideos: async (channelId: string, page: number = 1) => {
       return this.request<{ videos: any[]; hasMore: boolean }>(`/channels/videos?channel_id=${channelId}&page=${page}`);
     },
@@ -344,7 +342,11 @@ class ApiClient {
     unsubscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/unsubscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     
     create: async (data: any) => this.request('/channels/create', { method: 'POST', body: JSON.stringify(data) }),
-    update: async (channelId: string, data: any) => this.request(`/channels/update`, { method: 'PUT', body: JSON.stringify({ ...data, channel_id: channelId }) }),
+    // FIX: Changed method from 'PUT' to 'POST' for broader PHP server compatibility
+    update: async (channelId: string, data: any) => this.request(`/channels/update`, { 
+        method: 'POST', 
+        body: JSON.stringify({ ...data, channel_id: channelId }) 
+    }),
   };
   
   // --- CREATOR MODULE ---
