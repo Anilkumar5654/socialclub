@@ -1,4 +1,4 @@
-Import { Image } from 'expo-image';
+import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   Settings,
