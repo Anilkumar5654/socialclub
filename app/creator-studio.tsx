@@ -17,7 +17,6 @@ import {
   LayoutDashboard,
   Calendar,
   MonitorPlay,
-  // ADDED: Edit Icon for Channel Management
   Edit 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo } from 'react';
@@ -43,6 +42,16 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
+// HELPER FUNCTIONS
+// ----------------------------------------------------------------
+
+// ✅ FIX: Image URL Helper (Ye function missing tha)
+const getImageUrl = (path: string | null | undefined) => {
+    if (!path) return 'https://via.placeholder.com/60';
+    return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
+};
+
+// ----------------------------------------------------------------
 // HELPER COMPONENTS
 // ----------------------------------------------------------------
 
@@ -63,18 +72,14 @@ function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title
 }
 
 function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel' | 'video'; item: any; onPress?: () => void; hideStats?: boolean }) {
-    const getMediaUrl = (path: string | undefined) => {
-      if (!path) return '';
-      return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
-    };
-    const thumbnailUri = getMediaUrl(item.thumbnail_url || item.thumbnailUrl || item.images?.[0]);
+    const thumbnailUri = getImageUrl(item.thumbnail_url || item.thumbnailUrl || item.images?.[0]);
     const title = type === 'video' ? (item.title || item.caption || item.content) : (item.content || item.caption || 'Untitled');
     const views = item.views || 0;
     const likes = item.likes || 0;
     const timestamp = item.timestamp || item.created_at || item.uploadDate || item.upload_date;
     const viralScore = item.viral_score;
 
-    const hasThumbnail = !!thumbnailUri;
+    const hasThumbnail = !!thumbnailUri && thumbnailUri !== 'https://via.placeholder.com/60';
   
     return (
       <TouchableOpacity style={styles.contentItem} onPress={onPress}>
@@ -126,8 +131,6 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
     );
 }
 
-
-// Interfaces remain the same
 interface Channel {
     id: string; name: string; description: string; avatar: string; cover_photo: string; subscribers_count: number; videos_count: number; created_at: string;
 }
@@ -142,7 +145,8 @@ interface Earnings {
 // CUSTOM FIXED HEADER COMPONENT
 // ----------------------------------------------------------------
 
-function CustomFixedHeader({ user, router }) {
+// Updated to accept avatarUrl
+function CustomFixedHeader({ user, router, avatarUrl }: { user: any, router: any, avatarUrl?: string }) {
     const insets = useSafeAreaInsets(); 
     return (
         <View style={[styles.customHeaderWrapper, { paddingTop: insets.top }]}>
@@ -159,10 +163,18 @@ function CustomFixedHeader({ user, router }) {
                         <Bell color={Colors.text} size={24} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => Alert.alert('Profile', 'Open profile settings')}>
-                        {/* Avatar Placeholder */}
-                        <View style={styles.profileAvatarPlaceholder}>
-                            <User color={Colors.textMuted} size={20} />
-                        </View>
+                        {/* ✅ FIX: Show Avatar in Header if available */}
+                        {avatarUrl ? (
+                             <Image 
+                                source={{ uri: avatarUrl }}
+                                style={styles.headerAvatar}
+                                contentFit="cover"
+                             />
+                        ) : (
+                            <View style={styles.profileAvatarPlaceholder}>
+                                <User color={Colors.textMuted} size={20} />
+                            </View>
+                        )}
                     </TouchableOpacity>
                 </View>
             </View>
@@ -200,31 +212,24 @@ export default function CreatorStudioScreen() {
   
   const canWithdraw = availableEarnings >= 100;
 
-  // --- HANDLER FOR EDITING CHANNEL ---
   const handleEditChannel = () => {
-    // Navigates to the file you just created: app/channel/edit.tsx
     router.push('/channel/edit'); 
   };
   
   useEffect(() => {
     loadCreatorData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
-  // --- LOGIC FUNCTIONS (UNCHANGED) ---
   const loadCreatorData = async () => { setIsLoading(true); try { const channelResponse = await api.channels.checkUserChannel(user?.id || ''); if (channelResponse.success && channelResponse.has_channel && channelResponse.data) { setChannel(channelResponse.data); await loadStatsAndContent(); } else { setChannel(null); } } catch (error: any) { setChannel(null); } finally { setIsLoading(false); } };
   const loadStatsAndContent = async () => { try { const [statsRes, earningsRes, postsRes, reelsRes, videosRes] = await Promise.all([ api.creator.getStats().catch(() => ({ stats: null })), api.creator.getEarnings('month').catch(() => ({ earnings: null })), api.creator.getContent('posts', 1).catch(() => ({ content: [] })), api.creator.getContent('reels', 1).catch(() => ({ content: [] })), api.creator.getContent('videos', 1).catch(() => ({ content: [] })), ]); setStats(statsRes.stats); setEarnings(earningsRes.earnings); setPosts(postsRes.content || []); setReels(reelsRes.content || []); setVideos(videosRes.content || []); } catch (error) { console.error('[Creator Studio] Critical error:', error); } };
   const handleCreateChannel = async () => { if (!channelName.trim()) { Alert.alert('Error', 'Please enter a channel name'); return; } setIsCreatingChannel(true); try { const response = await api.channels.create({ name: channelName, description: channelDescription, }); if (response.channel) { setChannel(response.channel); setShowCreateChannel(false); setChannelName(''); setChannelDescription(''); Alert.alert('Success', 'Channel created successfully!'); await loadStatsAndContent(); } } catch (error: any) { Alert.alert('Error', error.message || 'Failed to create channel'); } finally { setIsCreatingChannel(false); } };
   const handleContentPress = (type: 'post' | 'reel' | 'video', id: string) => { if (type === 'post') { router.push(`/post/${id}`); } else if (type === 'reel') { router.push('/reels'); } else if (type === 'video') { router.push(`/video-analytics?videoId=${id}`); } };
 
-  // ------------------------------------------------
-  // RENDER LOGIC
-  // ------------------------------------------------
-
   if (isLoading) {
     return (
       <View style={[styles.container, styles.centerContent]}>
-        <Stack.Screen options={{ title: 'Creator Studio', headerStyle: { backgroundColor: Colors.background }, headerTintColor: Colors.text, headerShadowVisible: false }}/>
+        <Stack.Screen options={{ headerShown: false }}/>
+        <CustomFixedHeader user={user} router={router} />
         <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Loading creator data...</Text>
       </View>
@@ -232,30 +237,34 @@ export default function CreatorStudioScreen() {
   }
 
   if (!channel && !showCreateChannel) {
-    // ... No Channel Found state remains the same
     return (
         <View style={[styles.container, styles.centerContent]}>
-          <Stack.Screen options={{ title: 'Creator Studio', headerStyle: { backgroundColor: Colors.background }, headerTintColor: Colors.text, headerShadowVisible: false }}/>
-          <Film color={Colors.textSecondary} size={80} />
-          <Text style={styles.noChannelTitle}>No Channel Found</Text>
-          <Text style={styles.noChannelSubtitle}>
-            You need to create a channel to access Creator Studio features and upload long videos.
-          </Text>
-          <TouchableOpacity style={styles.createChannelButton} onPress={() => setShowCreateChannel(true)}>
-            <Plus color={Colors.text} size={20} />
-            <Text style={styles.createChannelButtonText}>Create Channel</Text>
-          </TouchableOpacity>
+          <Stack.Screen options={{ headerShown: false }}/>
+          <CustomFixedHeader user={user} router={router} />
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <Film color={Colors.textSecondary} size={80} />
+            <Text style={styles.noChannelTitle}>No Channel Found</Text>
+            <Text style={styles.noChannelSubtitle}>
+                You need to create a channel to access Creator Studio features and upload long videos.
+            </Text>
+            <TouchableOpacity style={styles.createChannelButton} onPress={() => setShowCreateChannel(true)}>
+                <Plus color={Colors.text} size={20} />
+                <Text style={styles.createChannelButtonText}>Create Channel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       );
   }
 
   if (showCreateChannel) {
-    // ... Create Channel Screen remains the same
     return (
         <View style={styles.container}>
-          <Stack.Screen
-            options={{ title: 'Create Channel', headerStyle: { backgroundColor: Colors.background }, headerTintColor: Colors.text, headerShadowVisible: false }}
-          />
+          <Stack.Screen options={{ headerShown: false }}/>
+          <View style={[styles.customHeaderWrapper, { paddingTop: insets.top }]}>
+             <View style={styles.customHeaderContainer}>
+                <Text style={styles.customHeaderTitle}>Create Channel</Text>
+             </View>
+          </View>
           <ScrollView style={styles.content} contentContainerStyle={styles.createChannelContent}>
             <Text style={styles.createChannelTitle}>Create Your Channel</Text>
             <Text style={styles.createChannelDescription}>
@@ -280,25 +289,29 @@ export default function CreatorStudioScreen() {
       );
   }
 
-  // 🔴 FINAL REFINED LAYOUT
   return (
     <View style={styles.container}> 
-      {/* Ensure Stack.Screen header is hidden when using custom header */}
       <Stack.Screen options={{ headerShown: false }} /> 
       
-      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile (Fixed at the very top) */}
-      <CustomFixedHeader user={user} router={router} /> 
+      {/* 1. FIXED HEADER */}
+      <CustomFixedHeader 
+        user={user} 
+        router={router} 
+        avatarUrl={channel?.avatar ? getImageUrl(channel.avatar) : undefined} 
+      /> 
 
-      {/* 🔴 SCROLLABLE CONTENT AREA */}
+      {/* SCROLLABLE CONTENT AREA */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           
         {/* 2. CHANNEL DETAILS (ONLY IN OVERVIEW TAB) */}
         {activeTab === 'overview' && channel && (
           <View style={styles.channelDetailsSection}>
+            {/* ✅ FIX: Use getImageUrl here */}
             <Image
-              source={{ uri: channel.avatar || 'https://via.placeholder.com/60' }} 
+              source={{ uri: getImageUrl(channel.avatar) }} 
               style={styles.channelAvatar}
               contentFit="cover"
+              cachePolicy="disk"
             />
             <View style={styles.channelHeaderInfo}>
               <Text style={styles.channelName}>{channel.name}</Text>
@@ -307,10 +320,9 @@ export default function CreatorStudioScreen() {
               </Text>
             </View>
 
-            {/* ✅ NEW: EDIT CHANNEL BUTTON (Fixed position next to stats) */}
             <TouchableOpacity 
                 style={styles.editChannelButton} 
-                onPress={handleEditChannel} // <-- Calls the handler
+                onPress={handleEditChannel} 
             >
                 <Edit color={Colors.text} size={18} />
                 <Text style={styles.editChannelButtonText}>Edit</Text>
@@ -319,11 +331,9 @@ export default function CreatorStudioScreen() {
           </View>
         )}
 
-        {/* --- TABS CONTENT STARTS HERE --- */}
-
+        {/* --- TABS CONTENT --- */}
         {activeTab === 'overview' && (
           <>
-            {/* 3. PERFORMANCE ANALYTICS SECTION (Combined and Simplified) */}
             {stats && (
                 <View style={[styles.section, styles.noBorderBottom]}>
                     <View style={styles.sectionHeader}>
@@ -334,7 +344,6 @@ export default function CreatorStudioScreen() {
                         </View>
                     </View>
 
-                    {/* Views and Watch Time Cards */}
                     <View style={styles.overviewAnalyticsGrid}>
                         <View style={styles.analyticsStatCard}>
                             <Text style={styles.analyticsStatValue}>
@@ -348,7 +357,6 @@ export default function CreatorStudioScreen() {
                         </View>
                     </View>
                     
-                    {/* Secondary Performance Grid (Followers, Engagement) */}
                     <View style={styles.statsGrid}> 
                         <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
                         <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
@@ -356,7 +364,6 @@ export default function CreatorStudioScreen() {
                 </View>
             )}
 
-            {/* 3. LATEST VIDEOS SECTION (MAX 3 - YOUTUBE STYLE) */}
             {videos.length > 0 && (
               <View style={[styles.section, { borderTopWidth: 1, borderTopColor: Colors.border }]}>
                 <Text style={styles.sectionTitle}>Latest videos</Text>
@@ -512,7 +519,7 @@ export default function CreatorStudioScreen() {
         )}
       </ScrollView>
 
-      {/* 4. BOTTOM TAB BAR (YOUTUBE STUDIO STYLE) - Fixed at the bottom */}
+      {/* 4. BOTTOM TAB BAR */}
       <View style={[styles.bottomTabBar, { paddingBottom: insets.bottom }]}>
         <TouchableOpacity style={styles.bottomTab} onPress={() => setActiveTab('overview')}>
           <LayoutDashboard color={activeTab === 'overview' ? Colors.primary : Colors.textSecondary} size={24} />
@@ -544,7 +551,7 @@ export default function CreatorStudioScreen() {
 }
 
 // ----------------------------------------------------------------
-// STYLES (FINAL CLEANUP AND FIXES)
+// STYLES
 // ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
@@ -552,19 +559,17 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.background,
     },
-    // 🔴 HEADER FIX: Wrapper handles SafeArea, Container is the fixed element
     customHeaderWrapper: {
         backgroundColor: Colors.background,
         borderBottomWidth: 1,
         borderBottomColor: Colors.border,
-        // The padding is handled by insets.top in the component
     },
     customHeaderContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 16,
-        height: 52, // Fixed low height
+        height: 52, 
     },
     customHeaderLeft: {
         flexDirection: 'row',
@@ -576,8 +581,6 @@ const styles = StyleSheet.create({
         color: Colors.text,
         letterSpacing: -0.5,
     },
-    
-    // Bottom Tab Bar Styles
     bottomTabBar: {
         flexDirection: 'row',
         justifyContent: 'space-around',
@@ -601,8 +604,6 @@ const styles = StyleSheet.create({
         color: Colors.primary,
         fontWeight: '600' as const,
     },
-
-    // CUSTOM HEADER ICONS (UNCHANGED)
     headerRightContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -621,8 +622,14 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: Colors.border,
     },
-
-    // CHANNEL DETAILS (ONLY IN OVERVIEW)
+    headerAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: Colors.surface,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
     channelDetailsSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -630,7 +637,7 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.background,
         borderBottomWidth: 1,
         borderBottomColor: Colors.border,
-        justifyContent: 'space-between', // Align items horizontally
+        justifyContent: 'space-between', 
     },
     channelAvatar: {
         width: 60,
@@ -642,9 +649,9 @@ const styles = StyleSheet.create({
         borderColor: Colors.border,
     },
     channelHeaderInfo: {
-        flex: 1, // Take up most space
+        flex: 1, 
         justifyContent: 'center',
-        marginRight: 10, // Space before edit button
+        marginRight: 10, 
     },
     channelName: {
         fontSize: 24,
@@ -656,7 +663,6 @@ const styles = StyleSheet.create({
         color: Colors.textSecondary,
         marginTop: 4,
     },
-    // NEW: Edit Channel Button Styles
     editChannelButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -667,21 +673,18 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: Colors.border,
-        alignSelf: 'flex-start', // Prevent button from stretching
+        alignSelf: 'flex-start',
     },
     editChannelButtonText: {
         color: Colors.text,
         fontWeight: '600',
         fontSize: 14,
     },
-    
-    // CONTENT STYLES
     content: { flex: 1, },
     section: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border, },
     noBorderBottom: { borderBottomWidth: 0 },
     sectionTitle: { fontSize: 20, fontWeight: '700' as const, color: Colors.text, marginBottom: 12, },
     
-    // Overview Analytics
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, },
     timeFilterContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
     timeFilterText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary, },
@@ -690,7 +693,6 @@ const styles = StyleSheet.create({
     analyticsStatValue: { fontSize: 22, fontWeight: '700' as const, color: Colors.text, marginBottom: 4, },
     analyticsStatTitle: { fontSize: 14, color: Colors.textSecondary, },
     
-    // Performance Grid (Smaller two-column)
     statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 16, },
     statCard: { width: (width - 48) / 2, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border, justifyContent: 'space-between', minHeight: 120, },
     statIcon: { marginBottom: 10, alignSelf: 'flex-start', },
@@ -700,7 +702,6 @@ const styles = StyleSheet.create({
     statChangePositive: { color: Colors.success, },
     statChangeNegative: { color: Colors.error, },
 
-    // Latest Video/Content Item (Placeholder Fixes)
     contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
     contentThumbnailContainer: { position: 'relative', width: 100, aspectRatio: 16 / 9, },
     contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
@@ -710,7 +711,6 @@ const styles = StyleSheet.create({
     contentDate: { fontSize: 13, color: Colors.textSecondary, }, 
     contentStats: { flexDirection: 'row', gap: 12, marginBottom: 4, },
 
-    // Other Content Styles
     analyticsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 24, alignItems: 'center', gap: 16, borderWidth: 1, borderColor: Colors.border, },
     analyticsText: { fontSize: 16, color: Colors.text, textAlign: 'center', lineHeight: 22, },
     contentCount: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, },
@@ -718,7 +718,6 @@ const styles = StyleSheet.create({
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12, },
     emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', },
     
-    // Earnings Styles (Unchanged)
     earningsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 32, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: Colors.border, },
     totalEarnings: { fontSize: 48, fontWeight: '700' as const, color: Colors.success, },
     earningsSubtext: { fontSize: 16, color: Colors.textSecondary, },
@@ -732,12 +731,10 @@ const styles = StyleSheet.create({
     withdrawNote: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18, },
     withdrawNoteDanger: { color: Colors.error, fontWeight: '600' as const, },
 
-    // Reel/Viral Specifics
     reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16, },
     viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, },
     viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
     
-    // Utility Styles (Unchanged)
     centerContent: { justifyContent: 'center', alignItems: 'center', padding: 32, },
     loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16, },
     noChannelTitle: { fontSize: 24, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8, textAlign: 'center', },
