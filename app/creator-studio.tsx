@@ -14,7 +14,8 @@ import {
   Plus,
   Bell,
   User,
-  LayoutDashboard, // Added for bottom tab dashboard icon
+  LayoutDashboard,
+  Calendar, // Added for Last 28 days filter icon
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -28,6 +29,7 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
+// Note: We use SafeAreaView, but we remove useSafeAreaInsets as we are using Stack.Screen again
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/colors';
@@ -38,10 +40,9 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// HELPER COMPONENTS (UNCHANGED)
+// HELPER COMPONENTS (UNCHANGED LOGIC)
 // ----------------------------------------------------------------
 
-// StatCard component remains the same
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
     const isPositive = change?.startsWith('+');
     return (
@@ -58,8 +59,7 @@ function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title
     );
 }
 
-// ContentItem component remains the same
-function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video'; item: any; onPress?: () => void }) {
+function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel' | 'video'; item: any; onPress?: () => void; hideStats?: boolean }) {
     const getMediaUrl = (path: string | undefined) => {
       if (!path) return '';
       return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
@@ -70,12 +70,16 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
     const likes = item.likes || 0;
     const timestamp = item.timestamp || item.created_at || item.uploadDate || item.upload_date;
     const viralScore = item.viral_score;
+
+    // Use a placeholder if no thumbnail is available
+    const hasThumbnail = !!thumbnailUri;
+  
     return (
       <TouchableOpacity style={styles.contentItem} onPress={onPress}>
         <View style={[styles.contentThumbnailContainer, type === 'reel' && styles.reelThumbnailContainer]}>
           <Image
-            source={{ uri: thumbnailUri }}
-            style={[styles.contentThumbnail, type === 'reel' && styles.reelThumbnail]}
+            source={hasThumbnail ? { uri: thumbnailUri } : require('@/assets/images/placeholder.png')} // Fallback placeholder image
+            style={[styles.contentThumbnail, type === 'reel' && styles.reelThumbnail, !hasThumbnail && styles.placeholderBackground]}
             contentFit="cover"
           />
           {(type === 'video' || type === 'reel') && viralScore !== undefined && (
@@ -88,26 +92,31 @@ function ContentItem({ type, item, onPress }: { type: 'post' | 'reel' | 'video';
           <Text style={styles.contentTitle} numberOfLines={2}>
             {title}
           </Text>
-          <View style={styles.contentStats}>
-            <View style={styles.contentStat}>
-              <Eye color={Colors.textSecondary} size={14} />
-              <Text style={styles.contentStatText}>
-                {views > 999 ? `${(views / 1000).toFixed(1)}K` : views}
-              </Text>
+          {/* Latest video list specific stats */}
+          {!hideStats && (
+             <View style={styles.contentStats}>
+                <View style={styles.contentStat}>
+                    <Eye color={Colors.textSecondary} size={14} />
+                    <Text style={styles.contentStatText}>
+                    {views > 999 ? `${(views / 1000).toFixed(1)}K` : views}
+                    </Text>
+                </View>
+                <View style={styles.contentStat}>
+                    <Heart color={Colors.textSecondary} size={14} />
+                    <Text style={styles.contentStatText}>
+                    {likes > 999 ? `${(likes / 1000).toFixed(1)}K` : likes}
+                    </Text>
+                </View>
             </View>
-            <View style={styles.contentStat}>
-              <Heart color={Colors.textSecondary} size={14} />
-              <Text style={styles.contentStatText}>
-                {likes > 999 ? `${(likes / 1000).toFixed(1)}K` : likes}
-              </Text>
-            </View>
-          </View>
+          )}
+
           <Text style={styles.contentDate}>{formatTimeAgo(timestamp)}</Text>
         </View>
         <ChevronRight color={Colors.textSecondary} size={20} />
       </TouchableOpacity>
     );
 }
+
 
 // Interfaces remain the same
 interface Channel {
@@ -137,6 +146,38 @@ interface Earnings {
 }
 
 // ----------------------------------------------------------------
+// CUSTOM FIXED HEADER COMPONENT
+// ----------------------------------------------------------------
+
+function CustomFixedHeader({ user, router }) {
+    return (
+        <View style={styles.customHeaderContainer}>
+            <View style={styles.customHeaderLeft}>
+                <Image
+                    source={require('@/assets/images/youtube_logo.png')} // Replace with your logo
+                    style={styles.youtubeLogo}
+                    contentFit="contain"
+                />
+                <Text style={styles.customHeaderTitle}>Studio</Text>
+            </View>
+            <View style={styles.headerRightContainer}>
+                <TouchableOpacity onPress={() => Alert.alert('Create', 'Open content creation options')} style={styles.headerIcon}>
+                    <Plus color={Colors.text} size={24} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert('Notifications', 'Show notifications')} style={styles.headerIcon}>
+                    <Bell color={Colors.text} size={24} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert('Profile', 'Open profile settings')}>
+                    <View style={styles.profileAvatarPlaceholder}>
+                        <User color={Colors.textMuted} size={20} />
+                    </View>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+}
+
+// ----------------------------------------------------------------
 // MAIN SCREEN COMPONENT
 // ----------------------------------------------------------------
 
@@ -145,7 +186,6 @@ export default function CreatorStudioScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   
-  // NOTE: activeTab will now control the content rendered inside the ScrollView
   const [activeTab, setActiveTab] = useState<'overview' | 'content' | 'earnings'>('overview');
   
   // ... (States and Logic functions remain the same) ...
@@ -172,13 +212,12 @@ export default function CreatorStudioScreen() {
     loadCreatorData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+  
   // --- LOGIC FUNCTIONS (UNCHANGED) ---
-  const loadCreatorData = async () => { /* ... unchanged logic ... */ setIsLoading(true); try { const channelResponse = await api.channels.checkUserChannel(user?.id || ''); if (channelResponse.success && channelResponse.has_channel && channelResponse.data) { setChannel(channelResponse.data); await loadStatsAndContent(); } else { setChannel(null); } } catch (error: any) { setChannel(null); } finally { setIsLoading(false); } };
-  const loadStatsAndContent = async () => { /* ... unchanged logic ... */ try { const [statsRes, earningsRes, postsRes, reelsRes, videosRes] = await Promise.all([ api.creator.getStats().catch(() => ({ stats: null })), api.creator.getEarnings('month').catch(() => ({ earnings: null })), api.creator.getContent('posts', 1).catch(() => ({ content: [] })), api.creator.getContent('reels', 1).catch(() => ({ content: [] })), api.creator.getContent('videos', 1).catch(() => ({ content: [] })), ]); setStats(statsRes.stats); setEarnings(earningsRes.earnings); setPosts(postsRes.content || []); setReels(reelsRes.content || []); setVideos(videosRes.content || []); } catch (error) { console.error('[Creator Studio] Critical error:', error); } };
-  const handleCreateChannel = async () => { /* ... unchanged logic ... */ if (!channelName.trim()) { Alert.alert('Error', 'Please enter a channel name'); return; } setIsCreatingChannel(true); try { const response = await api.channels.create({ name: channelName, description: channelDescription, }); if (response.channel) { setChannel(response.channel); setShowCreateChannel(false); setChannelName(''); setChannelDescription(''); Alert.alert('Success', 'Channel created successfully!'); await loadStatsAndContent(); } } catch (error: any) { Alert.alert('Error', error.message || 'Failed to create channel'); } finally { setIsCreatingChannel(false); } };
-  const handleContentPress = (type: 'post' | 'reel' | 'video', id: string) => { /* ... unchanged logic ... */ if (type === 'post') { router.push(`/post/${id}`); } else if (type === 'reel') { router.push('/reels'); } else if (type === 'video') { router.push(`/video-analytics?videoId=${id}`); } };
-
+  const loadCreatorData = async () => { setIsLoading(true); try { const channelResponse = await api.channels.checkUserChannel(user?.id || ''); if (channelResponse.success && channelResponse.has_channel && channelResponse.data) { setChannel(channelResponse.data); await loadStatsAndContent(); } else { setChannel(null); } } catch (error: any) { setChannel(null); } finally { setIsLoading(false); } };
+  const loadStatsAndContent = async () => { try { const [statsRes, earningsRes, postsRes, reelsRes, videosRes] = await Promise.all([ api.creator.getStats().catch(() => ({ stats: null })), api.creator.getEarnings('month').catch(() => ({ earnings: null })), api.creator.getContent('posts', 1).catch(() => ({ content: [] })), api.creator.getContent('reels', 1).catch(() => ({ content: [] })), api.creator.getContent('videos', 1).catch(() => ({ content: [] })), ]); setStats(statsRes.stats); setEarnings(earningsRes.earnings); setPosts(postsRes.content || []); setReels(reelsRes.content || []); setVideos(videosRes.content || []); } catch (error) { console.error('[Creator Studio] Critical error:', error); } };
+  const handleCreateChannel = async () => { if (!channelName.trim()) { Alert.alert('Error', 'Please enter a channel name'); return; } setIsCreatingChannel(true); try { const response = await api.channels.create({ name: channelName, description: channelDescription, }); if (response.channel) { setChannel(response.channel); setShowCreateChannel(false); setChannelName(''); setChannelDescription(''); Alert.alert('Success', 'Channel created successfully!'); await loadStatsAndContent(); } } catch (error: any) { Alert.alert('Error', error.message || 'Failed to create channel'); } finally { setIsCreatingChannel(false); } };
+  const handleContentPress = (type: 'post' | 'reel' | 'video', id: string) => { if (type === 'post') { router.push(`/post/${id}`); } else if (type === 'reel') { router.push('/reels'); } else if (type === 'video') { router.push(`/video-analytics?videoId=${id}`); } };
 
   // ------------------------------------------------
   // RENDER LOGIC
@@ -244,42 +283,20 @@ export default function CreatorStudioScreen() {
       );
   }
 
-  // 🔴 MAIN SCREEN RENDER
+  // 🔴 FINAL REFINED LAYOUT
   return (
     <SafeAreaView style={styles.container}> 
-      <Stack.Screen
-        // 1. STACK HEADER IS HIDDEN OR CUSTOMIZED
-        options={{
-          // Header is customized via headerRight, but the background must be set
-          headerShown: true, // Keep it true, but use custom title/icons
-          title: 'Studio',
-          headerStyle: { backgroundColor: Colors.background, borderBottomWidth: 0, elevation: 0 },
-          headerTintColor: Colors.text,
-          headerShadowVisible: false,
-          headerRight: () => (
-            // 2. STUDIO HEADER ICONS
-            <View style={styles.headerRightContainer}>
-              <TouchableOpacity onPress={() => Alert.alert('Create', 'Open content creation options')} style={styles.headerIcon}>
-                <Plus color={Colors.text} size={24} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => Alert.alert('Notifications', 'Show notifications')} style={styles.headerIcon}>
-                <Bell color={Colors.text} size={24} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => Alert.alert('Profile', 'Open profile settings')}>
-                <View style={styles.profileAvatarPlaceholder}>
-                    <User color={Colors.textMuted} size={20} />
-                </View>
-              </TouchableOpacity>
-            </View>
-          ),
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} /> 
       
+      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile */}
+      {/* Note: This CustomFixedHeader handles the height and the status bar area */}
+      <CustomFixedHeader user={user} router={router} /> 
+
       {/* 🔴 SCROLLABLE CONTENT AREA */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           
-        {/* 3. SCROLLABLE CHANNEL DETAILS SECTION */}
-        {channel && (
+        {/* 2. CHANNEL DETAILS (ONLY IN OVERVIEW TAB) */}
+        {activeTab === 'overview' && channel && (
           <View style={styles.channelDetailsSection}>
             <Image
               source={{ uri: channel.avatar || 'https://via.placeholder.com/60' }} 
@@ -299,10 +316,18 @@ export default function CreatorStudioScreen() {
 
         {activeTab === 'overview' && (
           <>
-            {/* Overview Analytics Cards */}
+            {/* 3. PERFORMANCE ANALYTICS SECTION */}
             {stats && (
-                <View style={[styles.section, { borderTopWidth: 1, borderTopColor: Colors.border }]}>
-                    <Text style={styles.timeFilterTextContainer}>Last 28 days</Text>
+                <View style={[styles.section, styles.noBorderBottom]}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Performance</Text>
+                        <View style={styles.timeFilterContainer}>
+                            <Calendar color={Colors.textSecondary} size={16} />
+                            <Text style={styles.timeFilterText}>Last 28 days</Text>
+                        </View>
+                    </View>
+
+                    {/* Views and Watch Time Cards */}
                     <View style={styles.overviewAnalyticsGrid}>
                         <View style={styles.analyticsStatCard}>
                             <Text style={styles.analyticsStatValue}>
@@ -311,57 +336,36 @@ export default function CreatorStudioScreen() {
                             <Text style={styles.analyticsStatTitle}>Views</Text>
                         </View>
                         <View style={styles.analyticsStatCard}>
+                            {/* Watch Time is hardcoded/placeholder - should be replaced with real API data */}
                             <Text style={styles.analyticsStatValue}>40.0</Text> 
                             <Text style={styles.analyticsStatTitle}>Watch time (hours)</Text>
                         </View>
                     </View>
+                    
+                    {/* Secondary Performance Grid (Followers, Engagement, Likes) */}
+                    <View style={styles.statsGrid}> 
+                        <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
+                        <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
+                    </View>
                 </View>
             )}
 
-            {/* Performance Grid */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Performance</Text>
-              {stats ? (
-                <View style={styles.statsGrid}> 
-                  <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
-                  <StatCard icon={<Eye color={Colors.success} size={24} />} title="Views" value={stats.total_views > 999 ? `${(stats.total_views / 1000).toFixed(1)}K` : stats.total_views.toString()} change={stats.monthly_growth?.views ? `+${stats.monthly_growth.views}%` : undefined}/>
-                  <StatCard icon={<Heart color={Colors.error} size={24} />} title="Likes" value={stats.total_likes > 999 ? `${(stats.total_likes / 1000).toFixed(1)}K` : stats.total_likes.toString()} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
-                  <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
-                </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No statistics available yet</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Top Performing */}
-            {reels.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Top Performing</Text>
-                <View style={styles.topPerformingSection}>
-                  <Text style={styles.topPerformingLabel}>Most Popular Reel</Text>
-                  <TouchableOpacity style={styles.topPerformingCard} onPress={() => handleContentPress('reel', reels[0].id)}>
-                    <Image source={{ uri: `${MEDIA_BASE_URL}/${reels[0].thumbnail_url || reels[0].thumbnailUrl}` }} style={styles.topPerformingImage} contentFit="cover"/>
-                    <View style={styles.topPerformingInfo}>
-                      <Text style={styles.topPerformingTitle} numberOfLines={2}>{reels[0].caption || 'Untitled'}</Text>
-                      <View style={styles.topPerformingStats}>
-                        <View style={styles.topPerformingStat}>
-                          <Eye color={Colors.textSecondary} size={16} />
-                          <Text style={styles.topPerformingStatText}>{reels[0].views > 999 ? `${(reels[0].views / 1000).toFixed(1)}K` : reels[0].views}</Text>
-                        </View>
-                        <View style={styles.topPerformingStat}>
-                          <Heart color={Colors.textSecondary} size={16} />
-                          <Text style={styles.topPerformingStatText}>{reels[0].likes > 999 ? `${(reels[0].likes / 1000).toFixed(1)}K` : reels[0].likes}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                </View>
+            {/* 3. LATEST VIDEOS SECTION (MAX 3 - YOUTUBE STYLE) */}
+            {videos.length > 0 && (
+              <View style={[styles.section, { borderTopWidth: 1, borderTopColor: Colors.border }]}>
+                <Text style={styles.sectionTitle}>Latest videos</Text>
+                {videos.slice(0, 3).map((video) => (
+                  <ContentItem
+                    key={video.id}
+                    type="video"
+                    item={video}
+                    onPress={() => handleContentPress('video', video.id)}
+                    hideStats={true} // Hide detailed stats for this list
+                  />
+                ))}
               </View>
             )}
 
-            {/* Analytics Summary */}
             {stats && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
@@ -378,8 +382,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
+        {/* ... Content Tab UI ... */}
         {activeTab === 'content' && (
-          // Content Tab UI (unchanged)
           <>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -420,8 +424,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
+        {/* ... Earnings Tab UI ... */}
         {activeTab === 'earnings' && (
-          // Earnings Tab UI (unchanged)
           <>
             {earnings ? (
               <>
@@ -502,7 +506,7 @@ export default function CreatorStudioScreen() {
         )}
       </ScrollView>
 
-      {/* 🔴 4. BOTTOM TAB BAR (YOUTUBE STUDIO STYLE) */}
+      {/* 4. BOTTOM TAB BAR (YOUTUBE STUDIO STYLE) - Fixed at the bottom */}
       <View style={[styles.bottomTabBar, { paddingBottom: insets.bottom }]}>
         <TouchableOpacity style={styles.bottomTab} onPress={() => setActiveTab('overview')}>
           <LayoutDashboard color={activeTab === 'overview' ? Colors.primary : Colors.textSecondary} size={24} />
@@ -514,6 +518,7 @@ export default function CreatorStudioScreen() {
           <Text style={[styles.bottomTabText, activeTab === 'content' && styles.bottomTabTextActive]}>Content</Text>
         </TouchableOpacity>
 
+        {/* Note: These tabs should ideally use setActiveTab if the content is on this screen, or router.push if they go to a new screen. Keeping router.push for logic separation based on previous code. */}
         <TouchableOpacity style={styles.bottomTab} onPress={() => router.push('/analytics')}>
           <BarChart3 color={Colors.textSecondary} size={24} />
           <Text style={styles.bottomTabText}>Analytics</Text>
@@ -534,7 +539,7 @@ export default function CreatorStudioScreen() {
 }
 
 // ----------------------------------------------------------------
-// STYLES (UPDATED FOR BOTTOM BAR)
+// STYLES (UPDATED FOR REFINEMENT)
 // ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
@@ -542,15 +547,40 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.background,
     },
-    // Old TabBar (Overview/Content/Earnings) is removed.
+    // 🔴 NEW: Custom Header Styles for low height and correct position
+    customHeaderContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: Colors.background,
+        paddingHorizontal: 16,
+        height: 52, // Low height for a clean look
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+    },
+    customHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    youtubeLogo: {
+        width: 30, 
+        height: 20, 
+        marginRight: 4,
+    },
+    customHeaderTitle: {
+        fontSize: 22,
+        fontWeight: '700' as const,
+        color: Colors.text,
+        letterSpacing: -0.5,
+    },
     
-    // NEW BOTTOM TAB BAR STYLES
+    // Bottom Tab Bar Styles
     bottomTabBar: {
         flexDirection: 'row',
         justifyContent: 'space-around',
         alignItems: 'center',
-        height: 60, // Standard tab bar height
-        backgroundColor: Colors.surface, // Use surface color for modern look
+        height: 60,
+        backgroundColor: Colors.surface,
         borderTopWidth: 1,
         borderTopColor: Colors.border,
     },
@@ -569,12 +599,11 @@ const styles = StyleSheet.create({
         fontWeight: '600' as const,
     },
 
-    // CUSTOM HEADER STYLES (Kept from last version)
+    // CUSTOM HEADER ICONS (UNCHANGED)
     headerRightContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 16,
-        marginRight: 8,
     },
     headerIcon: {
         padding: 4,
@@ -589,7 +618,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: Colors.border,
     },
-    // NEW SCROLLABLE CHANNEL DETAILS SECTION
+
+    // 🔴 CHANNEL DETAILS (ONLY IN SCROLLVIEW)
     channelDetailsSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -622,16 +652,23 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     
-    // REST OF THE STYLES (KEPT UNCHANGED)
+    // CONTENT STYLES
     content: { flex: 1, },
     section: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border, },
+    noBorderBottom: { borderBottomWidth: 0 },
     sectionTitle: { fontSize: 20, fontWeight: '700' as const, color: Colors.text, marginBottom: 12, },
-    overviewAnalyticsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, marginBottom: 16, },
+    
+    // Overview Analytics
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, },
+    timeFilterContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+    timeFilterText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary, },
+    overviewAnalyticsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 16, },
     analyticsStatCard: { width: (width - 48) / 2, backgroundColor: Colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: Colors.border, minHeight: 80, },
     analyticsStatValue: { fontSize: 22, fontWeight: '700' as const, color: Colors.text, marginBottom: 4, },
     analyticsStatTitle: { fontSize: 14, color: Colors.textSecondary, },
-    timeFilterTextContainer: { fontSize: 13, fontWeight: '600' as const, color: Colors.textMuted, alignSelf: 'flex-end', paddingVertical: 8, },
-    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, },
+    
+    // Performance Grid (Smaller two-column)
+    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 16, },
     statCard: { width: (width - 48) / 2, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border, justifyContent: 'space-between', minHeight: 120, },
     statIcon: { marginBottom: 10, alignSelf: 'flex-start', },
     statTitle: { fontSize: 13, color: Colors.textSecondary, },
@@ -639,36 +676,30 @@ const styles = StyleSheet.create({
     statChange: { fontSize: 12, fontWeight: '600' as const, marginTop: 4, },
     statChangePositive: { color: Colors.success, },
     statChangeNegative: { color: Colors.error, },
-    topPerformingSection: { gap: 12, },
-    topPerformingLabel: { fontSize: 15, fontWeight: '600' as const, color: Colors.textSecondary, marginBottom: 8, },
-    topPerformingCard: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: Colors.border, },
-    topPerformingImage: { width: 120, aspectRatio: 9 / 16, },
-    topPerformingInfo: { flex: 1, padding: 12, justifyContent: 'space-between', },
-    topPerformingTitle: { fontSize: 15, fontWeight: '600' as const, color: Colors.text, lineHeight: 20, },
-    topPerformingStats: { flexDirection: 'row', gap: 16, },
-    topPerformingStat: { flexDirection: 'row', alignItems: 'center', gap: 6, },
-    topPerformingStatText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary, },
+
+    // Latest Video/Content Item (YouTube style)
+    contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
+    contentThumbnailContainer: { position: 'relative', width: 100, aspectRatio: 16 / 9, },
+    contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, },
+    placeholderBackground: { backgroundColor: Colors.textMuted },
+    contentInfo: { flex: 1, marginLeft: 0, },
+    contentTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, lineHeight: 20, marginBottom: 6, },
+    contentDate: { fontSize: 13, color: Colors.textSecondary, }, // Date is made slightly more prominent
+    contentStats: { flexDirection: 'row', gap: 12, marginBottom: 4, }, // Stats remain hidden for latest videos but exist for other lists
+
+    // Other Content Styles
     analyticsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 24, alignItems: 'center', gap: 16, borderWidth: 1, borderColor: Colors.border, },
     analyticsText: { fontSize: 16, color: Colors.text, textAlign: 'center', lineHeight: 22, },
     contentCount: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, },
     contentCountText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary, },
-    contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
-    contentThumbnailContainer: { position: 'relative', width: 100, aspectRatio: 16 / 9, },
-    reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16, },
-    contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, },
-    viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, },
-    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
-    contentInfo: { flex: 1, marginLeft: 0, },
-    contentTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, lineHeight: 20, marginBottom: 6, },
-    contentStats: { flexDirection: 'row', gap: 12, marginBottom: 4, },
-    contentStat: { flexDirection: 'row', alignItems: 'center', gap: 4, },
-    contentStatText: { fontSize: 12, color: Colors.textSecondary, },
-    contentDate: { fontSize: 11, color: Colors.textMuted, },
+    emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12, },
+    emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', },
+    
+    // Earnings Styles (Unchanged)
     earningsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 32, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: Colors.border, },
     totalEarnings: { fontSize: 48, fontWeight: '700' as const, color: Colors.success, },
     earningsSubtext: { fontSize: 16, color: Colors.textSecondary, },
     revenueItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.border, },
-    revenueInfo: { flex: 1, },
     revenueTitle: { fontSize: 16, fontWeight: '600' as const, color: Colors.text, marginBottom: 4, },
     revenueDescription: { fontSize: 13, color: Colors.textSecondary, },
     revenueAmount: { fontSize: 18, fontWeight: '700' as const, color: Colors.text, },
@@ -677,6 +708,8 @@ const styles = StyleSheet.create({
     submitButtonDisabled: { opacity: 0.4, },
     withdrawNote: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18, },
     withdrawNoteDanger: { color: Colors.error, fontWeight: '600' as const, },
+
+    // Create Channel/Utility Styles (Unchanged)
     centerContent: { justifyContent: 'center', alignItems: 'center', padding: 32, },
     loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16, },
     noChannelTitle: { fontSize: 24, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8, textAlign: 'center', },
@@ -700,4 +733,9 @@ const styles = StyleSheet.create({
     earningsValue: { fontSize: 16, fontWeight: '600' as const, color: Colors.text, },
     refreshButton: { padding: 8, },
     sectionHint: { fontSize: 13, color: Colors.textMuted, marginBottom: 12, fontStyle: 'italic' as const, },
+    
+    // Reel/Viral Specifics
+    reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16, },
+    viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, },
+    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
 });
