@@ -1,5 +1,5 @@
 import { ApiLogger } from '@/app/api-debug';
-import { getDeviceId } from '@/utils/deviceId';
+import { getDeviceId } from '@/utils/deviceId'; // Direct import to prevent hanging
 
 const API_BASE_URL = 'https://moviedbr.com/api';
 const MEDIA_BASE_URL = 'https://moviedbr.com/upload';
