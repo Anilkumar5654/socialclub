@@ -56,27 +56,37 @@ export default function ChannelProfileScreen() {
   const [activeTab, setActiveTab] = useState<'videos' | 'reels' | 'about'>('videos');
   const [isSubscribed, setIsSubscribed] = useState(false);
 
-  // --- QUERY: Channel Details ---
+  // --- QUERY: Channel Details (FIXED: Using getChannel) ---
   const { data: channelData, isLoading, isError } = useQuery({
     queryKey: ['channel-profile', resolvedChannelId],
-    queryFn: () => api.channels.getChannelDetails(resolvedChannelId), 
+    // FIX 1: API call name changed from getChannelDetails to getChannel (as per api.ts)
+    queryFn: () => api.channels.getChannel(resolvedChannelId), 
     enabled: resolvedChannelId.length > 0,
     select: (data) => data.channel,
   });
 
-  // --- QUERY: Channel Content ---
+  const profile: ChannelData | undefined = channelData;
+  const isOwnChannel = currentUser?.id === profile?.user_id;
+
+  // --- QUERY: Channel Content (FIXED: Using api.users and relying on profile.user_id) ---
   const { data: contentData, isLoading: isLoadingContent } = useQuery({
     queryKey: ['channel-content', resolvedChannelId, activeTab],
     queryFn: async () => {
+      const userId = profile?.user_id;
+
+      if (!userId) return { videos: [], reels: [] }; 
+      
+      // FIX 2: Using api.users modules for content since api.channels lacks them
       if (activeTab === 'videos') {
-        return api.channels.getVideos(resolvedChannelId, 1);
+        return api.users.getVideos(userId, 1); 
       }
       if (activeTab === 'reels') {
-        return api.channels.getReels(resolvedChannelId, 1);
+        return api.users.getReels(userId, 1);
       }
       return { videos: [], reels: [] };
     },
-    enabled: resolvedChannelId.length > 0 && activeTab !== 'about',
+    // FIX 3: Enable only when profile (and thus user_id) is available
+    enabled: !!profile?.user_id && activeTab !== 'about', 
   });
 
   // --- MUTATION: Subscribe/Unsubscribe ---
@@ -107,11 +117,7 @@ export default function ChannelProfileScreen() {
     return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
   };
   
-  // FIX: profile variable is now defined directly from channelData
-  const profile: ChannelData | undefined = channelData;
   const content = activeTab === 'reels' ? ((contentData as any)?.reels || []) : ((contentData as any)?.videos || []);
-
-  const isOwnChannel = currentUser?.id === profile?.user_id;
   
   // State Initialization
   React.useEffect(() => {
