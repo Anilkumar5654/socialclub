@@ -751,7 +751,7 @@ const styles = StyleSheet.create({
     contentCount: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.border },
     contentCountText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12 },
-    emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center },
+    emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
     
     // --- EARNINGS & MONETIZATION STYLES ---
     earningsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 32, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: Colors.border },
