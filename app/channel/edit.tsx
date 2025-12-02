@@ -3,8 +3,9 @@ import {
   Save,
   ArrowLeft,
   Camera,
+  RotateCcw,
 } from 'lucide-react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker'; // Image Picker library is assumed
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -24,7 +26,7 @@ import Colors from '@/constants/colors';
 import { api, MEDIA_BASE_URL } from '@/services/api'; 
 import { useAuth } from '@/contexts/AuthContext'; 
 
-// DUMMY TYPES (चैनलप्रोफ़ाइल से लिया गया)
+// DUMMY TYPES (updated for handle restriction and media)
 interface ChannelData {
   id: string;
   name: string;
@@ -32,7 +34,12 @@ interface ChannelData {
   handle?: string;
   bio?: string;
   about_text?: string;
+  last_handle_update?: string; // New field for restriction logic
 }
+
+const HANDLE_CHANGE_DAYS = 20;
+const MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
+const RESTRICTION_MILLIS = HANDLE_CHANGE_DAYS * MILLIS_PER_DAY;
 
 const getMediaUri = (uri: string | undefined) => {
     if (!uri) return '';
@@ -43,35 +50,53 @@ export default function EditChannelScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
-  
   const currentUserId = currentUser?.id;
-
+  
   // --- LOCAL STATES ---
   const [channelName, setChannelName] = useState('');
   const [channelHandle, setChannelHandle] = useState('');
   const [channelBio, setChannelBio] = useState('');
   const [channelAbout, setChannelAbout] = useState('');
+  const [newAvatarUri, setNewAvatarUri] = useState<string | null>(null);
+  const [newCoverUri, setNewCoverUri] = useState<string | null>(null);
   
   // --- QUERY: Fetch User's Channel Details ---
   const { data: channelData, isLoading, isError } = useQuery({
     queryKey: ['my-channel-profile', currentUserId],
     queryFn: async () => {
-        // First, check if the user has a channel associated
         const checkResponse = await api.channels.checkUserChannel(currentUserId || '');
         const channelId = checkResponse?.channel?.id;
 
         if (channelId) {
-            // Then fetch the channel details using the found ID
             return api.channels.getChannel(channelId);
         }
-        // If the check fails, we throw an error which lands in isError state
         throw new Error('Channel not found for current user. Please create one.');
     },
     enabled: !!currentUserId,
-    select: (data) => data?.channel,
+    select: (data) => data?.channel as ChannelData, // Cast to include new fields
   });
 
   const channel: ChannelData | undefined = channelData;
+  const initialHandle = channel?.handle; // Original handle for comparison
+
+  // --- HANDLE RESTRICTION LOGIC ---
+  const timeSinceLastUpdate = useMemo(() => {
+    if (!channel?.last_handle_update) return RESTRICTION_MILLIS; // Default to allow change if no record
+    
+    const lastUpdateDate = new Date(channel.last_handle_update).getTime();
+    const timeElapsed = Date.now() - lastUpdateDate;
+    return timeElapsed;
+  }, [channel?.last_handle_update]);
+
+  const canChangeHandle = timeSinceLastUpdate >= RESTRICTION_MILLIS;
+
+  const daysRemaining = useMemo(() => {
+    if (canChangeHandle) return 0;
+    const remainingMillis = RESTRICTION_MILLIS - timeSinceLastUpdate;
+    return Math.ceil(remainingMillis / MILLIS_PER_DAY);
+  }, [canChangeHandle, timeSinceLastUpdate]);
+  // --- END HANDLE RESTRICTION LOGIC ---
+
 
   // Initialize form state when channel data is fetched
   useEffect(() => {
@@ -83,17 +108,61 @@ export default function EditChannelScreen() {
     }
   }, [channel]);
 
+  // --- MEDIA PICKERS (MOCK) ---
+  const pickMedia = async (type: 'avatar' | 'cover') => {
+    // NOTE: Actual file upload requires FormData and native handling, 
+    // here we mock the picker and state update.
+    try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: type === 'avatar' ? [1, 1] : [16, 9],
+            quality: 0.5,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            const uri = result.assets[0].uri;
+            if (type === 'avatar') {
+                setNewAvatarUri(uri);
+            } else {
+                setNewCoverUri(uri);
+            }
+        }
+    } catch (e) {
+        Alert.alert('Error', 'Failed to pick media.');
+    }
+  };
+
+
   // --- MUTATION: Update Channel Details ---
   const updateChannelMutation = useMutation({
-    mutationFn: (data: Partial<ChannelData>) => {
+    mutationFn: async (data: Partial<ChannelData> & { updateHandleTime?: boolean }) => {
       if (!channel?.id) throw new Error('Channel ID is missing');
-      return api.channels.update(channel.id, data);
+
+      // 1. Handle Media Uploads (MOCK/PLACEHOLDER: In real app, this is done via FormData)
+      //    We assume media upload APIs are called here first, returning new URLs.
+
+      // 2. Prepare text data
+      const updateData = { ...data };
+      
+      // 3. Add handle update flag if the handle was changed
+      if (initialHandle !== channelHandle.trim()) {
+        if (!canChangeHandle) {
+            throw new Error(`Handle can only be changed once every ${HANDLE_CHANGE_DAYS} days. ${daysRemaining} days remaining.`);
+        }
+        updateData.updateHandleTime = true; // Flag for server
+      }
+      
+      return api.channels.update(channel.id, updateData);
     },
     onSuccess: () => {
       Alert.alert('Success', 'Channel updated successfully!');
-      // Invalidate both local and public view queries
+      // Invalidate queries to fetch fresh data
       queryClient.invalidateQueries({ queryKey: ['my-channel-profile', currentUserId] });
       queryClient.invalidateQueries({ queryKey: ['channel-profile', channel?.id] });
+      // Clear temporary URI states
+      setNewAvatarUri(null);
+      setNewCoverUri(null);
     },
     onError: (error: any) => {
       Alert.alert('Error', error.message || 'Failed to update channel.');
@@ -106,7 +175,6 @@ export default function EditChannelScreen() {
         return;
     }
     
-    // Validate basic fields
     if (!channelName.trim()) {
         Alert.alert('Validation', 'Channel name cannot be empty.');
         return;
@@ -122,6 +190,7 @@ export default function EditChannelScreen() {
     updateChannelMutation.mutate(updatedData);
   };
   
+  // --- RENDER STATES ---
   if (isLoading || !currentUserId) {
     return (
       <View style={styles.container}>
@@ -135,7 +204,6 @@ export default function EditChannelScreen() {
   }
 
   if (isError || !channel) {
-    // If isError is true, it means checkUserChannel failed, likely meaning no channel exists
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ title: 'Edit Channel' }} />
@@ -145,7 +213,7 @@ export default function EditChannelScreen() {
           </Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => Alert.alert('Action Required', 'Navigate to /create-channel to proceed.')}
+            onPress={() => router.push('/create-channel')} // Assuming this path exists
           >
             <Text style={styles.retryButtonText}>Create Channel Now</Text>
           </TouchableOpacity>
@@ -154,11 +222,14 @@ export default function EditChannelScreen() {
     );
   }
 
+  const currentAvatar = newAvatarUri || getMediaUri(channel.avatar);
+  const currentCover = newCoverUri || getMediaUri(channel.cover_photo); // Assuming cover_photo field exists
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen
         options={{
-          headerShown: false, // Custom header
+          headerShown: false,
         }}
       />
       <View style={styles.header}>
@@ -179,24 +250,30 @@ export default function EditChannelScreen() {
         
         {/* --- Avatar and Cover --- */}
         <View style={styles.mediaSection}>
-            {/* Cover Photo Placeholder */}
+            {/* Cover Photo */}
             <View style={styles.coverPlaceholder}>
-                <Text style={styles.mediaLabel}>Channel Cover (16:9)</Text>
-                <TouchableOpacity style={styles.mediaEditButton}>
+                <Image
+                    source={{ uri: currentCover }}
+                    style={styles.coverImage}
+                    contentFit="cover"
+                />
+                <TouchableOpacity style={styles.mediaEditButton} onPress={() => pickMedia('cover')}>
                     <Camera color="white" size={24} />
                 </TouchableOpacity>
+                {newCoverUri && <Text style={styles.pendingMediaText}>Cover pending upload</Text>}
             </View>
 
             {/* Avatar */}
             <View style={styles.avatarContainer}>
                 <Image
-                    source={{ uri: getMediaUri(channel.avatar) }}
+                    source={{ uri: currentAvatar }}
                     style={styles.avatar}
                     contentFit="cover"
                 />
-                <TouchableOpacity style={styles.avatarEditButton}>
+                <TouchableOpacity style={styles.avatarEditButton} onPress={() => pickMedia('avatar')}>
                     <Camera color={Colors.text} size={18} />
                 </TouchableOpacity>
+                {newAvatarUri && <Text style={styles.pendingMediaTextAvatar}>Avatar pending upload</Text>}
             </View>
         </View>
 
@@ -216,13 +293,24 @@ export default function EditChannelScreen() {
 
         <View style={styles.inputGroup}>
             <Text style={styles.label}>Handle (Unique URL)</Text>
+            
+            {/* Handle Input with Restriction Logic */}
             <TextInput
-                style={styles.input}
+                style={[styles.input, !canChangeHandle && styles.inputDisabled]}
                 value={channelHandle}
                 onChangeText={setChannelHandle}
                 placeholder="@yourhandle"
                 placeholderTextColor={Colors.textMuted}
+                editable={canChangeHandle}
             />
+            {!canChangeHandle && (
+                <View style={styles.handleRestrictionNotice}>
+                    <RotateCcw color={Colors.warning} size={14} />
+                    <Text style={styles.handleRestrictionText}>
+                        Handle can be changed again in {daysRemaining} days.
+                    </Text>
+                </View>
+            )}
         </View>
 
         <View style={styles.inputGroup}>
@@ -250,7 +338,7 @@ export default function EditChannelScreen() {
             />
         </View>
 
-        {/* --- Save Button (Optional: Already in Header) --- */}
+        {/* --- Save Button --- */}
         <TouchableOpacity 
             style={[styles.saveButton, updateChannelMutation.isPending && styles.saveButtonDisabled]}
             onPress={handleSave}
@@ -315,22 +403,48 @@ const styles = StyleSheet.create({
   },
   coverPlaceholder: {
     width: '100%',
-    height: 120, // 16:9 ratio approximately
+    height: 120, // 16:9 ratio
     backgroundColor: Colors.surface,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: -40, // Pull avatar up over cover
+    marginBottom: -40, 
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.8,
   },
   mediaLabel: {
     color: Colors.textMuted,
     fontSize: 14,
+    position: 'absolute',
+    zIndex: 2,
   },
   mediaEditButton: {
     position: 'absolute',
     padding: 8,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 20,
+    zIndex: 3,
+  },
+  pendingMediaText: {
+    position: 'absolute',
+    bottom: 5,
+    color: Colors.warning,
+    fontSize: 12,
+    zIndex: 3,
+  },
+  pendingMediaTextAvatar: {
+    position: 'absolute',
+    top: -10,
+    right: -50,
+    color: Colors.warning,
+    fontSize: 12,
+    zIndex: 3,
   },
   avatarContainer: {
     position: 'relative',
@@ -376,9 +490,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  inputDisabled: {
+    backgroundColor: Colors.surface,
+    opacity: 0.7,
+  },
   textArea: {
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  handleRestrictionNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+  },
+  handleRestrictionText: {
+    fontSize: 13,
+    color: Colors.warning,
   },
   
   // Save Button Styles
@@ -397,4 +525,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-});
+})
