@@ -16,7 +16,7 @@ import {
   User,
   LayoutDashboard,
   Calendar,
-  MonitorPlay, // Added for Video Placeholder Icon
+  MonitorPlay,
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -29,9 +29,11 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  StatusBar, // Added to manage status bar style
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// Assuming Colors, AuthContext, API, and timeFormat paths are correct
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, MEDIA_BASE_URL } from '@/services/api';
@@ -40,7 +42,7 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// HELPER COMPONENTS (PLACEHOLDER FIX APPLIED)
+// HELPER COMPONENTS (LOGIC & CRASH FIX APPLIED)
 // ----------------------------------------------------------------
 
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
@@ -77,7 +79,7 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
       <TouchableOpacity style={styles.contentItem} onPress={onPress}>
         <View style={[styles.contentThumbnailContainer, type === 'reel' && styles.reelThumbnailContainer]}>
           
-          {/* 🔴 CRASH FIX: Checking for thumbnail and rendering a placeholder View/Icon if not present */}
+          {/* CRASH FIX: Using View/Icon for placeholder */}
           {hasThumbnail ? (
             <Image
               source={{ uri: thumbnailUri }}
@@ -100,7 +102,7 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
           <Text style={styles.contentTitle} numberOfLines={2}>
             {title}
           </Text>
-          {/* Only show detailed stats for content tabs, not the latest video list on overview */}
+          {/* Show full stats only when not hidden (e.g., in Content tab) */}
           {!hideStats && (
              <View style={styles.contentStats}>
                 <View style={styles.contentStat}>
@@ -128,56 +130,43 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
 
 // Interfaces remain the same
 interface Channel {
-    id: string;
-    name: string;
-    description: string;
-    avatar: string;
-    cover_photo: string;
-    subscribers_count: number;
-    videos_count: number;
-    created_at: string;
+    id: string; name: string; description: string; avatar: string; cover_photo: string; subscribers_count: number; videos_count: number; created_at: string;
 }
 interface CreatorStats {
-    total_followers: number;
-    total_views: number;
-    total_likes: number;
-    engagement_rate: number;
-    monthly_growth?: { followers: number; views: number; engagement: number; };
+    total_followers: number; total_views: number; total_likes: number; engagement_rate: number; monthly_growth?: { followers: number; views: number; engagement: number; };
 }
 interface Earnings {
-    total_earnings: number;
-    pending_earnings: number;
-    paid_earnings: number;
-    ad_revenue: number;
-    reels_bonus: number;
-    period: string;
+    total_earnings: number; pending_earnings: number; paid_earnings: number; ad_revenue: number; reels_bonus: number; period: string;
 }
 
 // ----------------------------------------------------------------
-// CUSTOM FIXED HEADER COMPONENT (NO STACK.SCREEN)
+// CUSTOM FIXED HEADER COMPONENT (Header Height/Status Bar Fix)
 // ----------------------------------------------------------------
 
 function CustomFixedHeader({ user, router }) {
-    const insets = useSafeAreaInsets(); // To ensure correct spacing below time/battery bar
-
+    const insets = useSafeAreaInsets(); 
     return (
-        <View style={[styles.customHeaderContainer, { paddingTop: insets.top || 10 }]}>
-            <View style={styles.customHeaderLeft}>
-                {/* Assuming you have a small logo for the left side, using an icon placeholder for safety */}
-                <Text style={styles.customHeaderTitle}>Studio</Text>
-            </View>
-            <View style={styles.headerRightContainer}>
-                <TouchableOpacity onPress={() => Alert.alert('Create', 'Open content creation options')} style={styles.headerIcon}>
-                    <Plus color={Colors.text} size={24} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert('Notifications', 'Show notifications')} style={styles.headerIcon}>
-                    <Bell color={Colors.text} size={24} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert('Profile', 'Open profile settings')}>
-                    <View style={styles.profileAvatarPlaceholder}>
-                        <User color={Colors.textMuted} size={20} />
-                    </View>
-                </TouchableOpacity>
+        // 1. Header Wrapper handles SafeArea and fixes content below Status Bar
+        <View style={[styles.customHeaderWrapper, { paddingTop: insets.top }]}>
+            <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+            <View style={styles.customHeaderContainer}>
+                <View style={styles.customHeaderLeft}>
+                    <Text style={styles.customHeaderTitle}>Studio</Text>
+                </View>
+                <View style={styles.headerRightContainer}>
+                    <TouchableOpacity onPress={() => Alert.alert('Create', 'Open content creation options')} style={styles.headerIcon}>
+                        <Plus color={Colors.text} size={24} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => Alert.alert('Notifications', 'Show notifications')} style={styles.headerIcon}>
+                        <Bell color={Colors.text} size={24} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => Alert.alert('Profile', 'Open profile settings')}>
+                        {/* Avatar Placeholder */}
+                        <View style={styles.profileAvatarPlaceholder}>
+                            <User color={Colors.textMuted} size={20} />
+                        </View>
+                    </TouchableOpacity>
+                </View>
             </View>
         </View>
     );
@@ -291,7 +280,10 @@ export default function CreatorStudioScreen() {
   // 🔴 FINAL REFINED LAYOUT
   return (
     <View style={styles.container}> 
-      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile (Uses Custom Component for height control) */}
+      {/* Ensure Stack.Screen header is hidden when using custom header */}
+      <Stack.Screen options={{ headerShown: false }} /> 
+      
+      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile (Fixed at the very top) */}
       <CustomFixedHeader user={user} router={router} /> 
 
       {/* 🔴 SCROLLABLE CONTENT AREA */}
@@ -338,7 +330,6 @@ export default function CreatorStudioScreen() {
                             <Text style={styles.analyticsStatTitle}>Views</Text>
                         </View>
                         <View style={styles.analyticsStatCard}>
-                            {/* Watch Time is hardcoded/placeholder - should be replaced with real API data */}
                             <Text style={styles.analyticsStatValue}>40.0</Text> 
                             <Text style={styles.analyticsStatTitle}>Watch time (hours)</Text>
                         </View>
@@ -362,7 +353,6 @@ export default function CreatorStudioScreen() {
                     type="video"
                     item={video}
                     onPress={() => handleContentPress('video', video.id)}
-                    // Latest videos list generally only shows the date/time below the title
                     hideStats={true} 
                   />
                 ))}
@@ -385,8 +375,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
+        {/* ... Content Tab UI ... */}
         {activeTab === 'content' && (
-          // Content Tab UI (unchanged)
           <>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -427,8 +417,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
+        {/* ... Earnings Tab UI ... */}
         {activeTab === 'earnings' && (
-          // Earnings Tab UI (unchanged)
           <>
             {earnings ? (
               <>
@@ -541,7 +531,7 @@ export default function CreatorStudioScreen() {
 }
 
 // ----------------------------------------------------------------
-// STYLES (UPDATED FOR CRASH FIX AND FINAL LAYOUT)
+// STYLES (FINAL CLEANUP AND FIXES)
 // ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
@@ -549,16 +539,19 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.background,
     },
-    // 🔴 NEW: Custom Header Styles for low height and correct position
+    // 🔴 HEADER FIX: Wrapper handles SafeArea, Container is the fixed element
+    customHeaderWrapper: {
+        backgroundColor: Colors.background,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+        // The padding is handled by insets.top in the component
+    },
     customHeaderContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        backgroundColor: Colors.background,
         paddingHorizontal: 16,
-        height: 52, // Standard height for a low, clean header
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
+        height: 52, // Fixed low height
     },
     customHeaderLeft: {
         flexDirection: 'row',
@@ -616,7 +609,7 @@ const styles = StyleSheet.create({
         borderColor: Colors.border,
     },
 
-    // CHANNEL DETAILS (ONLY IN SCROLLVIEW)
+    // CHANNEL DETAILS (ONLY IN OVERVIEW)
     channelDetailsSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -674,11 +667,11 @@ const styles = StyleSheet.create({
     statChangePositive: { color: Colors.success, },
     statChangeNegative: { color: Colors.error, },
 
-    // Latest Video/Content Item (YouTube style)
+    // Latest Video/Content Item (Placeholder Fixes)
     contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
     contentThumbnailContainer: { position: 'relative', width: 100, aspectRatio: 16 / 9, },
     contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
-    placeholderBackground: { backgroundColor: Colors.surface, }, // Updated to use surface color for placeholder
+    placeholderBackground: { backgroundColor: Colors.surface, },
     contentInfo: { flex: 1, marginLeft: 0, },
     contentTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, lineHeight: 20, marginBottom: 6, },
     contentDate: { fontSize: 13, color: Colors.textSecondary, }, 
