@@ -1,4 +1,4 @@
-import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
+Import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -380,10 +380,22 @@ export default function VideoPlayerScreen() {
     try { await Linking.openURL(url); } catch { Alert.alert('Error', 'WhatsApp not installed'); }
   };
 
+  // --- CHANGED LOGIC HERE ---
   const handleChannelPress = () => {
-    const targetUserId = channel?.user_id || video?.user?.id;
-    if (targetUserId) router.push({ pathname: '/user/[userId]', params: { userId: targetUserId } });
+    // 1. Channel ID प्राप्त करें
+    const targetChannelId = channel?.id || video?.user?.channel_id;
+    
+    // 2. /channel/[channelId] रूट पर नेविगेट करें
+    if (targetChannelId) {
+      router.push({ 
+        pathname: '/channel/[channelId]', 
+        params: { channelId: targetChannelId } // Parameter का नाम channelId होना चाहिए
+      });
+    } else {
+      Alert.alert('Error', 'Channel details not available.');
+    }
   };
+  // --- END CHANGED LOGIC ---
 
   const handleRecommendedPress = (recVideoId: string) => {
     hasTrackedView.current = false;
