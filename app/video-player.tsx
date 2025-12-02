@@ -1,4 +1,4 @@
-Import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
