@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker'; // Image Picker library is assumed
+import * as ImagePicker from 'expo-image-picker'; 
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -26,7 +26,7 @@ import Colors from '@/constants/colors';
 import { api, MEDIA_BASE_URL } from '@/services/api'; 
 import { useAuth } from '@/contexts/AuthContext'; 
 
-// DUMMY TYPES (updated for handle restriction and media)
+// DUMMY TYPES
 interface ChannelData {
   id: string;
   name: string;
@@ -34,7 +34,8 @@ interface ChannelData {
   handle?: string;
   bio?: string;
   about_text?: string;
-  last_handle_update?: string; // New field for restriction logic
+  last_handle_update?: string;
+  cover_photo?: string;
 }
 
 const HANDLE_CHANGE_DAYS = 20;
@@ -73,15 +74,15 @@ export default function EditChannelScreen() {
         throw new Error('Channel not found for current user. Please create one.');
     },
     enabled: !!currentUserId,
-    select: (data) => data?.channel as ChannelData, // Cast to include new fields
+    select: (data) => data?.channel as ChannelData,
   });
 
   const channel: ChannelData | undefined = channelData;
-  const initialHandle = channel?.handle; // Original handle for comparison
+  const initialHandle = channel?.handle;
 
   // --- HANDLE RESTRICTION LOGIC ---
   const timeSinceLastUpdate = useMemo(() => {
-    if (!channel?.last_handle_update) return RESTRICTION_MILLIS; // Default to allow change if no record
+    if (!channel?.last_handle_update) return RESTRICTION_MILLIS;
     
     const lastUpdateDate = new Date(channel.last_handle_update).getTime();
     const timeElapsed = Date.now() - lastUpdateDate;
@@ -110,8 +111,6 @@ export default function EditChannelScreen() {
 
   // --- MEDIA PICKERS (MOCK) ---
   const pickMedia = async (type: 'avatar' | 'cover') => {
-    // NOTE: Actual file upload requires FormData and native handling, 
-    // here we mock the picker and state update.
     try {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -136,31 +135,32 @@ export default function EditChannelScreen() {
 
   // --- MUTATION: Update Channel Details ---
   const updateChannelMutation = useMutation({
-    mutationFn: async (data: Partial<ChannelData> & { updateHandleTime?: boolean }) => {
+    mutationFn: async (data: { textData: Partial<ChannelData> }) => {
       if (!channel?.id) throw new Error('Channel ID is missing');
-
-      // 1. Handle Media Uploads (MOCK/PLACEHOLDER: In real app, this is done via FormData)
-      //    We assume media upload APIs are called here first, returning new URLs.
-
-      // 2. Prepare text data
-      const updateData = { ...data };
       
+      const { textData } = data;
+      
+      // 1. Media Upload Logic Placeholder (In a real app, upload avatar/cover first)
+      //    We assume media upload APIs return URLs that would then be passed in textData.
+      
+      // 2. Determine if we are sending JSON or FormData
+      //    Since we only have textData and channel ID, we send JSON.
+      //    If newAvatarUri or newCoverUri were set, we would need to switch to FormData.
+
       // 3. Add handle update flag if the handle was changed
-      if (initialHandle !== channelHandle.trim()) {
+      if (initialHandle !== textData.handle) {
         if (!canChangeHandle) {
             throw new Error(`Handle can only be changed once every ${HANDLE_CHANGE_DAYS} days. ${daysRemaining} days remaining.`);
         }
-        updateData.updateHandleTime = true; // Flag for server
+        textData.updateHandleTime = true; // Flag for server
       }
       
-      return api.channels.update(channel.id, updateData);
+      return api.channels.update(channel.id, textData);
     },
     onSuccess: () => {
       Alert.alert('Success', 'Channel updated successfully!');
-      // Invalidate queries to fetch fresh data
       queryClient.invalidateQueries({ queryKey: ['my-channel-profile', currentUserId] });
       queryClient.invalidateQueries({ queryKey: ['channel-profile', channel?.id] });
-      // Clear temporary URI states
       setNewAvatarUri(null);
       setNewCoverUri(null);
     },
@@ -180,14 +180,18 @@ export default function EditChannelScreen() {
         return;
     }
 
-    const updatedData: Partial<ChannelData> = {
+    const textData: Partial<ChannelData> = {
         name: channelName.trim(),
         handle: channelHandle.trim(),
         bio: channelBio.trim(),
         about_text: channelAbout.trim(),
     };
 
-    updateChannelMutation.mutate(updatedData);
+    // If media URIs are set, you would call a different mutation here
+    // that wraps the textData and the media files into FormData.
+    
+    // For now, call the mutation with only text data
+    updateChannelMutation.mutate({ textData });
   };
   
   // --- RENDER STATES ---
@@ -213,7 +217,7 @@ export default function EditChannelScreen() {
           </Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => router.push('/create-channel')} // Assuming this path exists
+            onPress={() => router.push('/create-channel')}
           >
             <Text style={styles.retryButtonText}>Create Channel Now</Text>
           </TouchableOpacity>
@@ -223,7 +227,7 @@ export default function EditChannelScreen() {
   }
 
   const currentAvatar = newAvatarUri || getMediaUri(channel.avatar);
-  const currentCover = newCoverUri || getMediaUri(channel.cover_photo); // Assuming cover_photo field exists
+  const currentCover = newCoverUri || getMediaUri(channel.cover_photo);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -525,4 +529,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-})
+});
