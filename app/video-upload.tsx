@@ -41,31 +41,32 @@ const useMonetizationStatus = () => {
         queryKey: ['channelDetailsMonetization'],
         queryFn: async () => {
             try {
-                // '0' bhejne se backend logged-in user ka channel uthata hai
+                // Backend ko '0' bhej rahe hain taaki wo logged-in user ka channel dhund le
                 const response = await api.channels.getChannel('0'); 
                 
-                // Debugging Log
-                console.log('[VideoUpload] Channel Response:', JSON.stringify(response, null, 2));
+                // Debugging Log: Console me check karna data kaisa aa raha hai
+                console.log('[VideoUpload] API Data:', JSON.stringify(response?.channel, null, 2));
 
                 if (response.success && response.channel) {
-                     // Check both flattened fields AND nested fields (backup)
-                     const status = response.channel.monetization_status || 'PENDING';
-                     
-                     // Convert to strict boolean
-                     // Backend se 1/0 ya true/false aa sakta hai
-                     let isEnabled = response.channel.is_monetization_enabled;
-                     if (isEnabled === '1') isEnabled = true;
-                     if (isEnabled === '0') isEnabled = false;
-                     
+                     const rawStatus = response.channel.monetization_status || 'PENDING';
+                     const rawEnabled = response.channel.is_monetization_enabled;
+
+                     // 🔥 ROBUST CONVERSION: PHP se "1", 1, true, "true" kuch bhi aaye, handle karega
+                     const isEnabled = (
+                        rawEnabled === true || 
+                        rawEnabled === 1 || 
+                        rawEnabled === '1' || 
+                        rawEnabled === 'true'
+                     );
+
                      return {
-                        status: status,
-                        is_enabled: !!isEnabled // Force boolean
+                        status: rawStatus.toString().toUpperCase(), // Hamesha Uppercase (e.g. APPROVED)
+                        is_enabled: isEnabled
                      };
                 }
             } catch (error) {
                 console.log('[VideoUpload] Error fetching channel:', error);
             }
-            
             return { status: 'PENDING', is_enabled: false };
         },
         staleTime: 1000 * 60 * 5, 
@@ -105,16 +106,18 @@ export default function VideoUploadScreen() {
   // Fetch monetization status
   const { data: monetizationStatus, isLoading: isLoadingMonetization } = useMonetizationStatus();
 
-  // 🔥 STRICT ELIGIBILITY LOGIC
+  // 🔥 STRICT LOGIC: Dono shartein poori honi chahiye
   const isMonetizationEligible = useMemo(() => {
     if (!monetizationStatus) return false;
     
-    const { status, is_enabled } = monetizationStatus;
-    
-    console.log(`[VideoUpload] Eligibility Check -> Status: ${status}, Enabled: ${is_enabled}`);
+    // Console log to debug logic
+    console.log('[VideoUpload] Eligibility Check:', monetizationStatus);
 
-    // Sirf tab true hoga jab status 'APPROVED' ho AUR enabled true ho
-    return (status === 'APPROVED') && (is_enabled === true);
+    // Rule: Status 'APPROVED' hona chahiye AUR Master Switch ON hona chahiye
+    const isApproved = monetizationStatus.status === 'APPROVED';
+    const isSwitchOn = monetizationStatus.is_enabled === true;
+
+    return isApproved && isSwitchOn;
   }, [monetizationStatus]);
 
   // --- TAGS LOGIC ---
@@ -176,7 +179,7 @@ export default function VideoUploadScreen() {
       formData.append('allow_comments', allowComments ? '1' : '0');
       formData.append('tags', finalTags.join(',')); 
       
-      // ✅ DOUBLE CHECK: Backend ko '0' bhejo agar user eligible nahi hai
+      // ✅ LOGIC: Backend ko sirf tab ON bhejo jab user eligible ho
       if (isMonetizationEligible) {
           formData.append('monetization_enabled', monetize ? '1' : '0');
       } else {
@@ -438,7 +441,7 @@ export default function VideoUploadScreen() {
             />
           </View>
 
-          {/* Monetization Switch - Only Visible if Eligible */}
+          {/* Monetization Switch - Show ONLY if Eligible */}
           {isLoadingMonetization ? (
             <View style={styles.loadingMonetization}>
                 <ActivityIndicator color={Colors.textSecondary} size="small" />
