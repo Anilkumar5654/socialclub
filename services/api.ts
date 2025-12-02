@@ -319,7 +319,7 @@ class ApiClient {
     getFollowing: async (userId: string, page: number = 1) => this.request(`/users/following?user_id=${userId}&page=${page}`),
     getPosts: async (userId: string, page: number = 1) => this.request<{ posts: any[]; hasMore: boolean }>(`/users/posts?user_id=${userId}&page=${page}`),
     
-    // FIX: Added specific return types for content fetching to match component expectation
+    // FIX 1: Added specific return types for user content fetching
     getReels: async (userId: string, page: number = 1) => {
       return this.request<{ reels: any[]; hasMore: boolean }>(`/users/reels?user_id=${userId}&page=${page}`);
     },
@@ -332,6 +332,14 @@ class ApiClient {
     checkUserChannel: async (userId: string) => this.request(`/channels/check-user-channel?user_id=${userId}`),
     getChannel: async (channelId: string) => this.request<{ channel: any }>(`/channels/details?id=${channelId}`),
     
+    // FIX 2: Added missing channel content fetching functions pointing to correct endpoints
+    getVideos: async (channelId: string, page: number = 1) => {
+      return this.request<{ videos: any[]; hasMore: boolean }>(`/channels/videos?channel_id=${channelId}&page=${page}`);
+    },
+    getReels: async (channelId: string, page: number = 1) => {
+      return this.request<{ reels: any[]; hasMore: boolean }>(`/channels/reels?channel_id=${channelId}&page=${page}`);
+    },
+    
     subscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/subscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     unsubscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/unsubscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     
@@ -339,7 +347,7 @@ class ApiClient {
     update: async (channelId: string, data: any) => this.request(`/channels/update`, { method: 'PUT', body: JSON.stringify({ ...data, channel_id: channelId }) }),
   };
   
-  // --- CRITICAL FIX: CREATOR MODULE ADDED ---
+  // --- CREATOR MODULE ---
   creator = {
     getStats: async () => this.request<{ stats: any }>('/creator/stats'),
     getEarnings: async (period: 'week' | 'month' | 'year' = 'month') => this.request<{ earnings: any }>(`/creator/earnings?period=${period}`),
