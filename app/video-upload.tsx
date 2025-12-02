@@ -15,6 +15,8 @@ import {
   Clock,
   Sparkles,
   DollarSign,
+  MonitorPlay,
+  Trash2, // Added for tag removal
 } from 'lucide-react-native';
 import React, { useState, useMemo } from 'react';
 import {
@@ -28,6 +30,7 @@ import {
   ActivityIndicator,
   Platform,
   Switch,
+  Keyboard, // Added for tags handling
 } from 'react-native';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 
@@ -36,27 +39,28 @@ import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
 
 // --- NEW HOOK: FETCH CHANNEL MONETIZATION STATUS ---
-// 🔥 FIX: Connect to the actual API endpoint /api/channels/details
+// 🔥 FIX: Connecting to the real API endpoint /api/channels/details
 const useMonetizationStatus = (userId: string | undefined) => {
     return useQuery({
         queryKey: ['channelDetailsMonetization', userId],
         queryFn: async () => {
             if (!userId) return null;
 
-            // ⚠️ FIX: Calling the actual channel details API. We omit 'id' so backend fetches the user's channel.
             // Assuming your api object has a 'channels' property with a details method
+            // We pass user ID so backend can find the channel details
+            // ⚠️ NOTE: This assumes api.channels.details is configured to handle the user_id query param
             const response = await api.channels.details({ user_id: userId }); 
             
-            // Extract monetization data from the channel object
             if (response.success && response.channel && response.channel.monetization) {
                  return response.channel.monetization;
             }
             
-            // Default safe return if API fails or status is not exposed (non-owner view)
+            // Default safe return: Not eligible
             return { status: 'PENDING', is_enabled: false };
         },
         enabled: !!userId,
-        staleTime: 1000 * 60 * 5, 
+        // Set stale time high as monetization status doesn't change often
+        staleTime: 1000 * 60 * 60, 
     });
 };
 
@@ -83,7 +87,8 @@ export default function VideoUploadScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
-  const [tags, setTags] = useState('');
+  const [tags, setTags] = useState<string[]>([]); // 1. TAGS FIX: Change to Array
+  const [tagInput, setTagInput] = useState(''); // State for current text input
   const [visibility, setVisibility] = useState('public');
   const [allowComments, setAllowComments] = useState(true);
   const [monetize, setMonetize] = useState(false);
@@ -94,17 +99,38 @@ export default function VideoUploadScreen() {
 
   // Determine if monetization option should be shown
   const isMonetizationEligible = useMemo(() => {
-    if (!monetizationStatus || monetizationStatus.status === 'NA') return false;
-    const status = monetizationStatus.status;
-    const isEnabled = monetizationStatus.is_enabled;
+    if (!monetizationStatus) return false;
+    const status = monetizationStatus.status; // Accessing the new structure
+    const isEnabled = monetizationStatus.is_enabled; // Accessing the new structure
     
     // Eligibility Logic: Must be 'APPROVED' or 'ELIGIBLE' AND enabled at channel level
     return (status === 'APPROVED' || status === 'ELIGIBLE') && isEnabled;
   }, [monetizationStatus]);
 
+  // --- TAGS LOGIC ---
+  const handleTagInput = (text: string) => {
+    setTagInput(text);
+    // If the last character is a comma or Enter, process the tag
+    if (text.endsWith(',') || text.endsWith('\n')) {
+      const newTag = text.slice(0, -1).trim(); // Remove comma/newline
+      if (newTag && !tags.includes(newTag)) {
+        setTags([...tags, newTag]);
+        setTagInput(''); // Clear input
+      } else if (newTag) {
+        setTagInput(''); // Clear input if tag is duplicate
+      }
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setTags(tags.filter(tag => tag !== tagToRemove));
+  };
+  // --- END TAGS LOGIC ---
+
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
+      // Input validations... (unchanged)
       if (!videoFile) {
         throw new Error('Please select a video to upload');
       }
@@ -120,10 +146,12 @@ export default function VideoUploadScreen() {
       if (videoDuration === null) {
          throw new Error('Video duration could not be determined. Please re-select the video.');
       }
-
-
-      const formData = new FormData();
       
+      // Process any remaining text in the tag input field
+      const finalTags = tagInput.trim() ? [...tags, tagInput.trim()] : tags; 
+      
+      const formData = new FormData();
+      // ... (file appends unchanged) ...
       const videoUri = videoFile.uri;
       const videoFileName = videoUri.split('/').pop() || 'video.mp4';
       const videoFileType = videoFileName.split('.').pop() || 'mp4';
@@ -146,17 +174,18 @@ export default function VideoUploadScreen() {
         } as any);
       }
 
-      // 1. DURATION FIX: Append video duration
+      // Append data
       formData.append('video_duration', videoDuration.toString());
-
       formData.append('title', title);
       formData.append('description', description);
       formData.append('category', category);
-      formData.append('tags', tags);
       formData.append('visibility', visibility);
       formData.append('allow_comments', allowComments ? '1' : '0');
+
+      // 1. TAGS FIX: Join array into comma-separated string for backend
+      formData.append('tags', finalTags.join(',')); 
       
-      // 2. CONDITIONAL MONETIZATION LOGIC: Send based on eligibility
+      // 2. CONDITIONAL MONETIZATION LOGIC
       if (isMonetizationEligible) {
           formData.append('monetization_enabled', monetize ? '1' : '0');
       } else {
@@ -185,57 +214,34 @@ export default function VideoUploadScreen() {
       );
     },
     onError: (error: any) => {
+      // ⚠️ Note: Database error messages were exposed by the backend for debugging.
       Alert.alert('Upload Failed', error.message || 'Failed to upload video. Please try again.');
     },
   });
 
+  // Pick video logic (unchanged)
   const pickVideo = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'We need permission to access your media library.');
-      return;
-    }
-
-    setVideoDuration(null); // Reset duration state
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: true,
-      quality: 1,
-    });
-
+    if (status !== 'granted') { Alert.alert('Permission Denied', 'We need permission to access your media library.'); return; }
+    setVideoDuration(null); 
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Videos, allowsEditing: true, quality: 1, });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-
-      // 1. DURATION FIX: Extract and save duration
       if (asset.duration) {
           setVideoDuration(Math.floor(asset.duration / 1000)); 
       } else {
           Alert.alert("Error", "Could not read video duration. Please try a different file.");
-          setVideoFile(null);
-          return;
+          setVideoFile(null); return;
       }
-      
       setVideoFile(asset);
     }
   };
 
+  // Pick thumbnail logic (unchanged)
   const pickThumbnail = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'We need permission to access your media library.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [16, 9],
-      quality: 1,
-    });
-
+    if (status !== 'granted') { Alert.alert('Permission Denied', 'We need permission to access your media library.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [16, 9], quality: 1, });
     if (!result.canceled && result.assets[0]) {
       setThumbnailFile(result.assets[0]);
     }
@@ -285,7 +291,8 @@ export default function VideoUploadScreen() {
         }}
       />
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* ... Video Details Section (unchanged) ... */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Video Details</Text>
           
@@ -297,7 +304,6 @@ export default function VideoUploadScreen() {
                   <Text style={styles.videoFileName} numberOfLines={1}>
                     {videoFile.uri.split('/').pop()}
                   </Text>
-                  {/* Display formatted duration */}
                   <Text style={styles.videoDuration}>
                     Duration: {videoDuration === null ? 'Calculating...' : formatDuration(videoDuration)}
                   </Text>
@@ -353,7 +359,7 @@ export default function VideoUploadScreen() {
             <Text style={styles.charCount}>{description.length}/5000</Text>
           </View>
         </View>
-
+        {/* ... Thumbnail Section (unchanged) ... */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Thumbnail</Text>
           <Text style={styles.sectionDescription}>
@@ -417,23 +423,44 @@ export default function VideoUploadScreen() {
             </ScrollView>
           </View>
 
+          {/* 2. TAGS FIX: Show current chips and input field */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               <Tag color={Colors.text} size={16} /> Tags
             </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Add tags separated by commas (e.g., gaming, tutorial, tips)"
-              placeholderTextColor={Colors.textMuted}
-              value={tags}
-              onChangeText={setTags}
-            />
+            
+            <View style={styles.tagsContainer}>
+                {tags.map((tag, index) => (
+                    <View key={index} style={styles.tagChip}>
+                        <Text style={styles.tagChipText}>{tag}</Text>
+                        <TouchableOpacity onPress={() => removeTag(tag)} style={styles.tagChipRemove}>
+                            <X color={Colors.text} size={12} />
+                        </TouchableOpacity>
+                    </View>
+                ))}
+                
+                <TextInput
+                    style={[styles.tagInput, { minWidth: tags.length === 0 ? '100%' : 100 }]}
+                    placeholder="Add tags separated by comma"
+                    placeholderTextColor={Colors.textMuted}
+                    value={tagInput}
+                    onChangeText={handleTagInput}
+                    onSubmitEditing={() => {
+                      // Process tag on 'Done'/'Enter' press
+                      if (tagInput.trim()) {
+                        handleTagInput(tagInput.trim() + ',');
+                        Keyboard.dismiss(); 
+                      }
+                    }}
+                    returnKeyType={Platform.OS === 'ios' ? 'done' : 'next'}
+                />
+            </View>
             <Text style={styles.hint}>
-              <Sparkles color={Colors.info} size={14} /> Tags help viewers find your video
+              <Sparkles color={Colors.info} size={14} /> Press comma (,) or Enter to create a tag
             </Text>
           </View>
         </View>
-
+        {/* ... Visibility Section (unchanged) ... */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Visibility</Text>
           
@@ -488,14 +515,14 @@ export default function VideoUploadScreen() {
             />
           </View>
 
-          {/* 2. CONDITIONAL MONETIZATION SWITCH AREA */}
+          {/* 3. MONETIZATION VISIBILITY FIX: Show Switch ONLY IF eligible */}
           {isLoadingMonetization ? (
             <View style={styles.loadingMonetization}>
                 <ActivityIndicator color={Colors.textSecondary} size="small" />
-                <Text style={styles.settingDescription}>Checking monetization status...</Text>
+                <Text style={styles.settingDescription}>Checking eligibility...</Text>
             </View>
           ) : isMonetizationEligible && (
-            // Show Switch only if eligible
+            // Only render the switch if the channel is eligible/approved and enabled
             <View style={styles.settingRow}>
               <View style={styles.settingLeft}>
                 <Text style={styles.settingLabel}>
@@ -512,12 +539,7 @@ export default function VideoUploadScreen() {
             </View>
           )}
           
-          {!isLoadingMonetization && !isMonetizationEligible && (
-              // Show Notice if not eligible
-              <View style={styles.nonEligibleNotice}>
-                <Text style={styles.nonEligibleText}>Monetization is not currently enabled for your channel. Please check Creator Studio for eligibility requirements.</Text>
-              </View>
-          )}
+          {/* Note: The Non-Eligible Notice is completely REMOVED as requested */}
         </View>
 
         <View style={styles.bottomSpacer} />
@@ -642,6 +664,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  // 🔴 TAGS FIX: New style for wrapping chips and input
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    padding: 8,
+    minHeight: 50,
+  },
+  tagChip: {
+    flexDirection: 'row',
+    backgroundColor: Colors.primary,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+    marginRight: 8,
+    marginBottom: 8,
+    gap: 4,
+  },
+  tagChipText: {
+    fontSize: 14,
+    color: Colors.text,
+    fontWeight: '600' as const,
+  },
+  tagChipRemove: {
+    padding: 2,
+  },
+  tagInput: {
+    // Input must behave inline with chips
+    flexGrow: 1,
+    minHeight: 30,
+    fontSize: 15,
+    color: Colors.text,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  // ------------------------------------
+  
   input: {
     backgroundColor: Colors.surface,
     borderWidth: 1,
@@ -799,6 +862,9 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.text,
     marginBottom: 4,
+    flexDirection: 'row', // Ensure icon is inline
+    alignItems: 'center',
+    gap: 6,
   },
   settingDescription: {
     fontSize: 13,
