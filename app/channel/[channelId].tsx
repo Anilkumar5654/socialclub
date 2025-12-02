@@ -30,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const { width } = Dimensions.get('window');
 const POST_SIZE = (width - 3) / 3;
 
-// --- DUMMY TYPES ---
+// --- TYPES ---
 interface ChannelData {
   id: string;
   name: string;
@@ -55,12 +55,6 @@ export default function ChannelProfileScreen() {
   
   const [activeTab, setActiveTab] = useState<'videos' | 'reels' | 'about'>('videos');
   const [isSubscribed, setIsSubscribed] = useState(false);
-
-  // Note: profile will be defined after the channelQuery loads
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const profile = (useQuery({ queryKey: ['channel-profile', resolvedChannelId] }) as any)?.data?.channel as ChannelData | undefined;
-
-  const isOwnChannel = currentUser?.id === profile?.user_id;
 
   // --- QUERY: Channel Details ---
   const { data: channelData, isLoading, isError } = useQuery({
@@ -113,7 +107,11 @@ export default function ChannelProfileScreen() {
     return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
   };
   
+  // FIX: profile variable is now defined directly from channelData
+  const profile: ChannelData | undefined = channelData;
   const content = activeTab === 'reels' ? ((contentData as any)?.reels || []) : ((contentData as any)?.videos || []);
+
+  const isOwnChannel = currentUser?.id === profile?.user_id;
   
   // State Initialization
   React.useEffect(() => {
