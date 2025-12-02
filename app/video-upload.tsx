@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+Import { Image } from 'expo-image';
 import { Stack, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -14,8 +14,9 @@ import {
   Calendar,
   Clock,
   Sparkles,
+  DollarSign, // Added for monetization icon
 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -28,11 +29,29 @@ import {
   Platform,
   Switch,
 } from 'react-native';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'; // useQuery added
 
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
+
+// --- NEW HOOK: FETCH CHANNEL MONETIZATION STATUS ---
+// Assuming API returns an object { status: 'APPROVED' | 'ELIGIBLE' | 'PENDING', is_enabled: boolean }
+const useMonetizationStatus = (userId: string | undefined) => {
+    return useQuery({
+        queryKey: ['channelMonetizationStatus', userId],
+        queryFn: async () => {
+            if (!userId) return null;
+            // ⚠️ Placeholder API Call: Replace with your actual channel monetization endpoint
+            const response = await api.channels.getMonetizationStatus(); 
+            return response.data; // Expected: { monetization_status: 'APPROVED', is_monetization_enabled: true }
+        },
+        enabled: !!userId,
+        // Using a stale time suitable for settings data
+        staleTime: 1000 * 60 * 5, 
+    });
+};
+
 
 const VIDEO_CATEGORIES = [
   'Gaming',
@@ -59,6 +78,9 @@ export default function VideoUploadScreen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   
+  // 1. NEW STATE: To store video duration in seconds
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+
   const [videoFile, setVideoFile] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [thumbnailFile, setThumbnailFile] = useState<ImagePicker.ImagePickerAsset | null>(null);
   
@@ -68,8 +90,22 @@ export default function VideoUploadScreen() {
   const [tags, setTags] = useState('');
   const [visibility, setVisibility] = useState('public');
   const [allowComments, setAllowComments] = useState(true);
-  const [monetize, setMonetize] = useState(true);
+  const [monetize, setMonetize] = useState(false); // Defaulting to false is safer
   const [scheduledDate, setScheduledDate] = useState('');
+
+  // Fetch monetization status
+  const { data: monetizationStatus, isLoading: isLoadingMonetization } = useMonetizationStatus(user?.id);
+
+  // Determine if monetization option should be shown
+  const isMonetizationEligible = useMemo(() => {
+    if (!monetizationStatus) return false;
+    const status = monetizationStatus.monetization_status;
+    const isEnabled = monetizationStatus.is_monetization_enabled;
+    
+    // Show option if status is 'APPROVED' AND channel level monetization is enabled
+    return (status === 'APPROVED' || status === 'ELIGIBLE') && isEnabled;
+  }, [monetizationStatus]);
+
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -85,6 +121,11 @@ export default function VideoUploadScreen() {
       if (!category) {
         throw new Error('Please select a category');
       }
+      if (videoDuration === null) {
+        // Safety check if duration somehow wasn't set
+         throw new Error('Video duration could not be determined. Please try selecting the video again.');
+      }
+
 
       const formData = new FormData();
       
@@ -110,18 +151,29 @@ export default function VideoUploadScreen() {
         } as any);
       }
 
+      // 4. NEW: Append video duration to the payload
+      formData.append('video_duration', videoDuration.toString());
+
       formData.append('title', title);
       formData.append('description', description);
       formData.append('category', category);
       formData.append('tags', tags);
       formData.append('visibility', visibility);
       formData.append('allow_comments', allowComments ? '1' : '0');
-      formData.append('monetization_enabled', monetize ? '1' : '0');
+      
+      // Only append monetization_enabled if the option was available and selected
+      if (isMonetizationEligible) {
+          formData.append('monetization_enabled', monetize ? '1' : '0');
+      } else {
+          // If not eligible, ensure monetization is explicitly disabled on backend
+          formData.append('monetization_enabled', '0'); 
+      }
       
       if (scheduledDate) {
         formData.append('scheduled_at', scheduledDate);
       }
 
+      // ⚠️ IMPORTANT: Assuming your backend API expects these fields in multipart/form-data
       return api.videos.upload(formData);
     },
     onSuccess: () => {
@@ -151,6 +203,9 @@ export default function VideoUploadScreen() {
       return;
     }
 
+    // Set duration to 0 initially or null before picking
+    setVideoDuration(null);
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsEditing: true,
@@ -158,7 +213,20 @@ export default function VideoUploadScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setVideoFile(result.assets[0]);
+      const asset = result.assets[0];
+
+      // 3. NEW LOGIC: Extract and save duration from the asset metadata
+      if (asset.duration) {
+          // Duration is often in milliseconds, converting to seconds
+          setVideoDuration(Math.floor(asset.duration / 1000)); 
+      } else {
+          // Fallback if duration is missing (e.g., on some platforms/files)
+          Alert.alert("Error", "Could not read video duration. Please try a different file.");
+          setVideoFile(null);
+          return;
+      }
+      
+      setVideoFile(asset);
     }
   };
 
@@ -183,8 +251,17 @@ export default function VideoUploadScreen() {
   };
 
   const handleUpload = () => {
+    handleUpload; // Just for linting, should be uploadMutation.mutate()
     uploadMutation.mutate();
   };
+  
+  const formatDuration = (seconds: number | null) => {
+      if (seconds === null) return 'N/A';
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
 
   return (
     <View style={styles.container}>
@@ -203,12 +280,12 @@ export default function VideoUploadScreen() {
             <TouchableOpacity
               style={[
                 styles.uploadButton,
-                uploadMutation.isPending && styles.uploadButtonDisabled,
+                uploadMutation.isPending || isLoadingMonetization || videoDuration === null && videoFile !== null ? styles.uploadButtonDisabled : null,
               ]}
               onPress={handleUpload}
-              disabled={uploadMutation.isPending}
+              disabled={uploadMutation.isPending || isLoadingMonetization || videoDuration === null && videoFile !== null}
             >
-              {uploadMutation.isPending ? (
+              {uploadMutation.isPending || isLoadingMonetization ? (
                 <ActivityIndicator color={Colors.text} size="small" />
               ) : (
                 <Text style={styles.uploadButtonText}>Upload</Text>
@@ -230,8 +307,9 @@ export default function VideoUploadScreen() {
                   <Text style={styles.videoFileName} numberOfLines={1}>
                     {videoFile.uri.split('/').pop()}
                   </Text>
+                  {/* Display formatted duration */}
                   <Text style={styles.videoDuration}>
-                    Duration: {Math.floor((videoFile.duration || 0) / 1000)}s
+                    Duration: {videoDuration === null ? 'Calculating...' : formatDuration(videoDuration)}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -419,19 +497,35 @@ export default function VideoUploadScreen() {
               thumbColor={Colors.text}
             />
           </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingLabel}>Monetization</Text>
-              <Text style={styles.settingDescription}>Enable ads on this video</Text>
+          
+          {/* 5. CONDITIONAL MONETIZATION SWITCH */}
+          {isLoadingMonetization ? (
+            <View style={styles.loadingMonetization}>
+                <ActivityIndicator color={Colors.textSecondary} size="small" />
+                <Text style={styles.settingDescription}>Checking monetization status...</Text>
             </View>
-            <Switch
-              value={monetize}
-              onValueChange={setMonetize}
-              trackColor={{ false: Colors.border, true: Colors.success }}
-              thumbColor={Colors.text}
-            />
-          </View>
+          ) : isMonetizationEligible && (
+            <View style={styles.settingRow}>
+              <View style={styles.settingLeft}>
+                <Text style={styles.settingLabel}>
+                    <DollarSign color={Colors.success} size={16} /> Monetization
+                </Text>
+                <Text style={styles.settingDescription}>Enable ads on this video</Text>
+              </View>
+              <Switch
+                value={monetize}
+                onValueChange={setMonetize}
+                trackColor={{ false: Colors.border, true: Colors.success }}
+                thumbColor={Colors.text}
+              />
+            </View>
+          )}
+          
+          {!isLoadingMonetization && !isMonetizationEligible && (
+              <View style={styles.nonEligibleNotice}>
+                <Text style={styles.nonEligibleText}>Monetization is not currently enabled for your channel. Please check Creator Studio for eligibility requirements.</Text>
+              </View>
+          )}
         </View>
 
         <View style={styles.bottomSpacer} />
@@ -528,7 +622,8 @@ const styles = StyleSheet.create({
     maxWidth: '80%',
   },
   videoDuration: {
-    fontSize: 12,
+    fontSize: 14, // Slightly increased size for visibility
+    fontWeight: '600' as const,
     color: Colors.textSecondary,
   },
   changeVideoButton: {
@@ -720,4 +815,20 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: 40,
   },
+  loadingMonetization: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  nonEligibleNotice: {
+      paddingVertical: 12,
+  },
+  nonEligibleText: {
+      fontSize: 13,
+      color: Colors.textMuted,
+      lineHeight: 18,
+  }
 });
