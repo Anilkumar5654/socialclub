@@ -15,7 +15,8 @@ import {
   Bell,
   User,
   LayoutDashboard,
-  Calendar, // Added for Last 28 days filter icon
+  Calendar,
+  MonitorPlay, // Added for Video Placeholder Icon
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -29,7 +30,6 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-// Note: We use SafeAreaView, but we remove useSafeAreaInsets as we are using Stack.Screen again
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/colors';
@@ -40,7 +40,7 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// HELPER COMPONENTS (UNCHANGED LOGIC)
+// HELPER COMPONENTS (PLACEHOLDER FIX APPLIED)
 // ----------------------------------------------------------------
 
 function StatCard({ icon, title, value, change }: { icon: React.ReactNode; title: string; value: string; change?: string }) {
@@ -71,17 +71,25 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
     const timestamp = item.timestamp || item.created_at || item.uploadDate || item.upload_date;
     const viralScore = item.viral_score;
 
-    // Use a placeholder if no thumbnail is available
     const hasThumbnail = !!thumbnailUri;
   
     return (
       <TouchableOpacity style={styles.contentItem} onPress={onPress}>
         <View style={[styles.contentThumbnailContainer, type === 'reel' && styles.reelThumbnailContainer]}>
-          <Image
-            source={hasThumbnail ? { uri: thumbnailUri } : require('@/assets/images/placeholder.png')} // Fallback placeholder image
-            style={[styles.contentThumbnail, type === 'reel' && styles.reelThumbnail, !hasThumbnail && styles.placeholderBackground]}
-            contentFit="cover"
-          />
+          
+          {/* 🔴 CRASH FIX: Checking for thumbnail and rendering a placeholder View/Icon if not present */}
+          {hasThumbnail ? (
+            <Image
+              source={{ uri: thumbnailUri }}
+              style={[styles.contentThumbnail, type === 'reel' && styles.reelThumbnail]}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={[styles.contentThumbnail, styles.placeholderBackground, type === 'reel' && styles.reelThumbnail]}>
+                <MonitorPlay color={Colors.textMuted} size={type === 'reel' ? 30 : 40} />
+            </View>
+          )}
+
           {(type === 'video' || type === 'reel') && viralScore !== undefined && (
             <View style={styles.viralScoreBadge}>
               <Text style={styles.viralScoreText}>{viralScore.toFixed(0)}</Text>
@@ -92,7 +100,7 @@ function ContentItem({ type, item, onPress, hideStats }: { type: 'post' | 'reel'
           <Text style={styles.contentTitle} numberOfLines={2}>
             {title}
           </Text>
-          {/* Latest video list specific stats */}
+          {/* Only show detailed stats for content tabs, not the latest video list on overview */}
           {!hideStats && (
              <View style={styles.contentStats}>
                 <View style={styles.contentStat}>
@@ -146,18 +154,16 @@ interface Earnings {
 }
 
 // ----------------------------------------------------------------
-// CUSTOM FIXED HEADER COMPONENT
+// CUSTOM FIXED HEADER COMPONENT (NO STACK.SCREEN)
 // ----------------------------------------------------------------
 
 function CustomFixedHeader({ user, router }) {
+    const insets = useSafeAreaInsets(); // To ensure correct spacing below time/battery bar
+
     return (
-        <View style={styles.customHeaderContainer}>
+        <View style={[styles.customHeaderContainer, { paddingTop: insets.top || 10 }]}>
             <View style={styles.customHeaderLeft}>
-                <Image
-                    source={require('@/assets/images/youtube_logo.png')} // Replace with your logo
-                    style={styles.youtubeLogo}
-                    contentFit="contain"
-                />
+                {/* Assuming you have a small logo for the left side, using an icon placeholder for safety */}
                 <Text style={styles.customHeaderTitle}>Studio</Text>
             </View>
             <View style={styles.headerRightContainer}>
@@ -224,7 +230,6 @@ export default function CreatorStudioScreen() {
   // ------------------------------------------------
 
   if (isLoading) {
-    // ... Loading state remains the same
     return (
       <View style={[styles.container, styles.centerContent]}>
         <Stack.Screen options={{ title: 'Creator Studio', headerStyle: { backgroundColor: Colors.background }, headerTintColor: Colors.text, headerShadowVisible: false }}/>
@@ -285,11 +290,8 @@ export default function CreatorStudioScreen() {
 
   // 🔴 FINAL REFINED LAYOUT
   return (
-    <SafeAreaView style={styles.container}> 
-      <Stack.Screen options={{ headerShown: false }} /> 
-      
-      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile */}
-      {/* Note: This CustomFixedHeader handles the height and the status bar area */}
+    <View style={styles.container}> 
+      {/* 1. FIXED HEADER: Studio, Plus, Bell, Profile (Uses Custom Component for height control) */}
       <CustomFixedHeader user={user} router={router} /> 
 
       {/* 🔴 SCROLLABLE CONTENT AREA */}
@@ -316,7 +318,7 @@ export default function CreatorStudioScreen() {
 
         {activeTab === 'overview' && (
           <>
-            {/* 3. PERFORMANCE ANALYTICS SECTION */}
+            {/* 3. PERFORMANCE ANALYTICS SECTION (Combined and Simplified) */}
             {stats && (
                 <View style={[styles.section, styles.noBorderBottom]}>
                     <View style={styles.sectionHeader}>
@@ -342,7 +344,7 @@ export default function CreatorStudioScreen() {
                         </View>
                     </View>
                     
-                    {/* Secondary Performance Grid (Followers, Engagement, Likes) */}
+                    {/* Secondary Performance Grid (Followers, Engagement) */}
                     <View style={styles.statsGrid}> 
                         <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
                         <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
@@ -360,7 +362,8 @@ export default function CreatorStudioScreen() {
                     type="video"
                     item={video}
                     onPress={() => handleContentPress('video', video.id)}
-                    hideStats={true} // Hide detailed stats for this list
+                    // Latest videos list generally only shows the date/time below the title
+                    hideStats={true} 
                   />
                 ))}
               </View>
@@ -382,8 +385,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
-        {/* ... Content Tab UI ... */}
         {activeTab === 'content' && (
+          // Content Tab UI (unchanged)
           <>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -424,8 +427,8 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
-        {/* ... Earnings Tab UI ... */}
         {activeTab === 'earnings' && (
+          // Earnings Tab UI (unchanged)
           <>
             {earnings ? (
               <>
@@ -518,7 +521,6 @@ export default function CreatorStudioScreen() {
           <Text style={[styles.bottomTabText, activeTab === 'content' && styles.bottomTabTextActive]}>Content</Text>
         </TouchableOpacity>
 
-        {/* Note: These tabs should ideally use setActiveTab if the content is on this screen, or router.push if they go to a new screen. Keeping router.push for logic separation based on previous code. */}
         <TouchableOpacity style={styles.bottomTab} onPress={() => router.push('/analytics')}>
           <BarChart3 color={Colors.textSecondary} size={24} />
           <Text style={styles.bottomTabText}>Analytics</Text>
@@ -534,12 +536,12 @@ export default function CreatorStudioScreen() {
           <Text style={[styles.bottomTabText, activeTab === 'earnings' && styles.bottomTabTextActive]}>Earn</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // ----------------------------------------------------------------
-// STYLES (UPDATED FOR REFINEMENT)
+// STYLES (UPDATED FOR CRASH FIX AND FINAL LAYOUT)
 // ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
@@ -554,18 +556,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: Colors.background,
         paddingHorizontal: 16,
-        height: 52, // Low height for a clean look
+        height: 52, // Standard height for a low, clean header
         borderBottomWidth: 1,
         borderBottomColor: Colors.border,
     },
     customHeaderLeft: {
         flexDirection: 'row',
         alignItems: 'center',
-    },
-    youtubeLogo: {
-        width: 30, 
-        height: 20, 
-        marginRight: 4,
     },
     customHeaderTitle: {
         fontSize: 22,
@@ -619,7 +616,7 @@ const styles = StyleSheet.create({
         borderColor: Colors.border,
     },
 
-    // 🔴 CHANNEL DETAILS (ONLY IN SCROLLVIEW)
+    // CHANNEL DETAILS (ONLY IN SCROLLVIEW)
     channelDetailsSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -680,12 +677,12 @@ const styles = StyleSheet.create({
     // Latest Video/Content Item (YouTube style)
     contentItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, },
     contentThumbnailContainer: { position: 'relative', width: 100, aspectRatio: 16 / 9, },
-    contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, },
-    placeholderBackground: { backgroundColor: Colors.textMuted },
+    contentThumbnail: { width: '100%', height: '100%', borderRadius: 6, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
+    placeholderBackground: { backgroundColor: Colors.surface, }, // Updated to use surface color for placeholder
     contentInfo: { flex: 1, marginLeft: 0, },
     contentTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, lineHeight: 20, marginBottom: 6, },
-    contentDate: { fontSize: 13, color: Colors.textSecondary, }, // Date is made slightly more prominent
-    contentStats: { flexDirection: 'row', gap: 12, marginBottom: 4, }, // Stats remain hidden for latest videos but exist for other lists
+    contentDate: { fontSize: 13, color: Colors.textSecondary, }, 
+    contentStats: { flexDirection: 'row', gap: 12, marginBottom: 4, },
 
     // Other Content Styles
     analyticsCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 24, alignItems: 'center', gap: 16, borderWidth: 1, borderColor: Colors.border, },
@@ -709,7 +706,12 @@ const styles = StyleSheet.create({
     withdrawNote: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18, },
     withdrawNoteDanger: { color: Colors.error, fontWeight: '600' as const, },
 
-    // Create Channel/Utility Styles (Unchanged)
+    // Reel/Viral Specifics
+    reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16, },
+    viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, },
+    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
+    
+    // Utility Styles (Unchanged)
     centerContent: { justifyContent: 'center', alignItems: 'center', padding: 32, },
     loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16, },
     noChannelTitle: { fontSize: 24, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8, textAlign: 'center', },
@@ -733,9 +735,4 @@ const styles = StyleSheet.create({
     earningsValue: { fontSize: 16, fontWeight: '600' as const, color: Colors.text, },
     refreshButton: { padding: 8, },
     sectionHint: { fontSize: 13, color: Colors.textMuted, marginBottom: 12, fontStyle: 'italic' as const, },
-    
-    // Reel/Viral Specifics
-    reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16, },
-    viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, },
-    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
 });
