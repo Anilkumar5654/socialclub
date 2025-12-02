@@ -18,9 +18,9 @@ import {
   Calendar,
   MonitorPlay,
   Edit,
-  CheckCircle2,
-  Lock,
-  Clock 
+  CheckCircle2, // New Icon
+  Lock,         // New Icon
+  Clock         // New Icon
 } from 'lucide-react-native';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -32,6 +32,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  TextInput,
   StatusBar,
   RefreshControl,
 } from 'react-native';
@@ -167,21 +168,12 @@ function MonetizationProgress({
     );
 }
 
-// ✅ UPDATED INTERFACE
+// ✅ UPDATED INTERFACE (Added monetization fields)
 interface Channel {
-    id: string; 
-    name: string; 
-    description: string; 
-    avatar: string; 
-    cover_photo: string; 
-    subscribers_count: number; 
-    videos_count: number; 
-    created_at: string;
-    // New fields for monetization
-    is_monetization_enabled?: boolean | number; // Handle 0/1 or true/false
+    id: string; name: string; description: string; avatar: string; cover_photo: string; subscribers_count: number; videos_count: number; created_at: string;
+    is_monetization_enabled?: boolean | number;
     monetization_watch_hours?: number; 
 }
-
 interface CreatorStats {
     total_followers: number; total_views: number; total_likes: number; engagement_rate: number; monthly_growth?: { followers: number; views: number; engagement: number; };
 }
@@ -262,9 +254,9 @@ export default function CreatorStudioScreen() {
   const TARGET_SUBS = 1000;
   const TARGET_WATCH_HOURS = 4000;
   
+  // Logic to determine monetization status
   const isMonetized = !!(channel?.is_monetization_enabled);
   const currentSubs = channel?.subscribers_count || 0;
-  // NOTE: Assuming your backend sends 'monetization_watch_hours', if not, default to 0
   const currentWatchHours = channel?.monetization_watch_hours || 0; 
 
   const handleEditChannel = () => {
@@ -325,16 +317,34 @@ export default function CreatorStudioScreen() {
     loadCreatorData();
   }, []);
 
+  const handleCreateChannel = async () => { 
+      if (!channelName.trim()) { Alert.alert('Error', 'Please enter a channel name'); return; } 
+      setIsCreatingChannel(true); 
+      try { 
+          const response = await api.channels.create({ name: channelName, description: channelDescription, }); 
+          if (response.channel) { 
+              setChannel(response.channel); 
+              setShowCreateChannel(false); 
+              setChannelName(''); 
+              setChannelDescription(''); 
+              Alert.alert('Success', 'Channel created successfully!'); 
+              await loadStatsAndContent(); 
+          } 
+      } catch (error: any) { 
+          Alert.alert('Error', error.message || 'Failed to create channel'); 
+      } finally { 
+          setIsCreatingChannel(false); 
+      } 
+  };
+
   const handleContentPress = (type: 'post' | 'reel' | 'video', id: string) => { 
       if (type === 'post') { router.push(`/post/${id}`); } 
       else if (type === 'reel') { router.push({ pathname: '/reels-player', params: { reelId: id } }); } 
       else if (type === 'video') { router.push({ pathname: '/video-analytics', params: { videoId: id } }); } 
   };
 
-  // ✅ Apply for Monetization Handler
   const handleApplyMonetization = () => {
       Alert.alert("Application Sent", "Your channel is under review.");
-      // Logic to call API to set status 'pending'
   };
 
   if (isLoading) {
@@ -356,6 +366,9 @@ export default function CreatorStudioScreen() {
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <Film color={Colors.textSecondary} size={80} />
             <Text style={styles.noChannelTitle}>No Channel Found</Text>
+            <Text style={styles.noChannelSubtitle}>
+                You need to create a channel to access Creator Studio features and upload long videos.
+            </Text>
             <TouchableOpacity style={styles.createChannelButton} onPress={() => setShowCreateChannel(true)}>
                 <Plus color={Colors.text} size={20} />
                 <Text style={styles.createChannelButtonText}>Create Channel</Text>
@@ -369,11 +382,19 @@ export default function CreatorStudioScreen() {
     return (
         <View style={styles.container}>
           <Stack.Screen options={{ headerShown: false }}/>
+          <View style={[styles.customHeaderWrapper, { paddingTop: insets.top }]}>
+             <View style={styles.customHeaderContainer}>
+                <Text style={styles.customHeaderTitle}>Create Channel</Text>
+             </View>
+          </View>
           <ScrollView style={styles.content} contentContainerStyle={styles.createChannelContent}>
             <Text style={styles.createChannelTitle}>Create Your Channel</Text>
+            <Text style={styles.createChannelDescription}>
+              Start your creator journey! Create a channel to upload long-form videos and access monetization features.
+            </Text>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Channel Name *</Text>
-              <TextInput style={styles.input} placeholder="Enter name" placeholderTextColor={Colors.textMuted} value={channelName} onChangeText={setChannelName}/>
+              <TextInput style={styles.input} placeholder="Enter channel name" placeholderTextColor={Colors.textMuted} value={channelName} onChangeText={setChannelName}/>
             </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Description</Text>
@@ -409,68 +430,132 @@ export default function CreatorStudioScreen() {
           
         {activeTab === 'overview' && channel && (
           <View style={styles.channelDetailsSection}>
-            <Image source={{ uri: getImageUrl(channel.avatar) }} style={styles.channelAvatar} contentFit="cover" cachePolicy="disk"/>
+            <Image
+              source={{ uri: getImageUrl(channel.avatar) }} 
+              style={styles.channelAvatar}
+              contentFit="cover"
+              cachePolicy="disk"
+            />
             <View style={styles.channelHeaderInfo}>
               <Text style={styles.channelName}>{channel.name}</Text>
-              <Text style={styles.channelStats}>{channel.subscribers_count.toLocaleString()} total subscribers</Text>
+              <Text style={styles.channelStats}>
+                {channel.subscribers_count.toLocaleString()} total subscribers
+              </Text>
             </View>
-            <TouchableOpacity style={styles.editChannelButton} onPress={handleEditChannel}>
+
+            <TouchableOpacity 
+                style={styles.editChannelButton} 
+                onPress={handleEditChannel} 
+            >
                 <Edit color={Colors.text} size={18} />
                 <Text style={styles.editChannelButtonText}>Edit</Text>
             </TouchableOpacity>
+            
           </View>
         )}
 
         {/* --- TABS CONTENT --- */}
-        {activeTab === 'overview' && stats && (
-            <View style={[styles.section, styles.noBorderBottom]}>
+        {activeTab === 'overview' && (
+          <>
+            {stats && (
+                <View style={[styles.section, styles.noBorderBottom]}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Performance</Text>
+                        <View style={styles.timeFilterContainer}>
+                            <Calendar color={Colors.textSecondary} size={16} />
+                            <Text style={styles.timeFilterText}>Last 28 days</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.overviewAnalyticsGrid}>
+                        <View style={styles.analyticsStatCard}>
+                            <Text style={styles.analyticsStatValue}>
+                                {stats.total_views > 999 ? `${(stats.total_views / 1000).toFixed(1)}K` : stats.total_views}
+                            </Text>
+                            <Text style={styles.analyticsStatTitle}>Views</Text>
+                        </View>
+                        <View style={styles.analyticsStatCard}>
+                            <Text style={styles.analyticsStatValue}>{currentWatchHours.toFixed(1)}</Text> 
+                            <Text style={styles.analyticsStatTitle}>Watch time (hours)</Text>
+                        </View>
+                    </View>
+                    
+                    <View style={styles.statsGrid}> 
+                        <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
+                        <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
+                    </View>
+                </View>
+            )}
+
+            {videos.length > 0 && (
+              <View style={[styles.section, { borderTopWidth: 1, borderTopColor: Colors.border }]}>
+                <Text style={styles.sectionTitle}>Latest videos</Text>
+                {videos.slice(0, 3).map((video) => (
+                  <ContentItem
+                    key={video.id}
+                    type="video"
+                    item={video}
+                    onPress={() => handleContentPress('video', video.id)}
+                    hideStats={true} 
+                  />
+                ))}
+              </View>
+            )}
+
+            {stats && (
+              <View style={styles.section}>
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Performance</Text>
-                    <View style={styles.timeFilterContainer}>
-                        <Calendar color={Colors.textSecondary} size={16} />
-                        <Text style={styles.timeFilterText}>Last 28 days</Text>
-                    </View>
+                  <Text style={styles.sectionTitle}>Analytics</Text>
                 </View>
-                <View style={styles.overviewAnalyticsGrid}>
-                    <View style={styles.analyticsStatCard}>
-                        <Text style={styles.analyticsStatValue}>{stats.total_views > 999 ? `${(stats.total_views / 1000).toFixed(1)}K` : stats.total_views}</Text>
-                        <Text style={styles.analyticsStatTitle}>Views</Text>
-                    </View>
-                    <View style={styles.analyticsStatCard}>
-                        <Text style={styles.analyticsStatValue}>{currentWatchHours.toFixed(1)}</Text> 
-                        <Text style={styles.analyticsStatTitle}>Watch time (hours)</Text>
-                    </View>
+                <View style={styles.analyticsCard}>
+                  <BarChart3 color={Colors.primary} size={48} />
+                  <Text style={styles.analyticsText}>
+                    Your content reached {stats.total_views > 999999 ? `${(stats.total_views / 1000000).toFixed(1)}M` : `${(stats.total_views / 1000).toFixed(1)}K`} people this month
+                  </Text>
                 </View>
-                <View style={styles.statsGrid}> 
-                    <StatCard icon={<Users color={Colors.primary} size={24} />} title="Followers" value={stats.total_followers.toLocaleString()} change={stats.monthly_growth?.followers ? `+${stats.monthly_growth.followers}%` : undefined}/>
-                    <StatCard icon={<TrendingUp color={Colors.info} size={24} />} title="Engagement" value={`${stats.engagement_rate.toFixed(1)}%`} change={stats.monthly_growth?.engagement ? `+${stats.monthly_growth.engagement}%` : undefined}/>
-                </View>
-                {videos.length > 0 && (
-                  <View style={[styles.section, { borderTopWidth: 1, borderTopColor: Colors.border, paddingHorizontal: 0 }]}>
-                    <Text style={[styles.sectionTitle, { paddingHorizontal: 16 }]}>Latest videos</Text>
-                    {videos.slice(0, 3).map((video) => (<ContentItem key={video.id} type="video" item={video} onPress={() => handleContentPress('video', video.id)} hideStats={true} />))}
-                  </View>
-                )}
-            </View>
+              </View>
+            )}
+          </>
         )}
 
+        {/* ... Content Tab UI ... */}
         {activeTab === 'content' && (
           <>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Videos</Text>
-                <View style={styles.contentCount}><Video color={Colors.textSecondary} size={16} /><Text style={styles.contentCountText}>{videos.length}</Text></View>
+                <Text style={styles.sectionTitle}>Posts</Text>
+                <View style={styles.contentCount}>
+                  <ImageIcon color={Colors.textSecondary} size={16} />
+                  <Text style={styles.contentCountText}>{posts.length}</Text>
+                </View>
               </View>
-              {videos.length > 0 ? ( videos.map((video) => (<ContentItem key={video.id} type="video" item={video} onPress={() => handleContentPress('video', video.id)}/>))
-              ) : ( <View style={styles.emptyState}> <Video color={Colors.textSecondary} size={40} /> <Text style={styles.emptyText}>No videos yet</Text> </View> )}
+              {posts.length > 0 ? ( posts.map((post) => (<ContentItem key={post.id} type="post" item={post} onPress={() => handleContentPress('post', post.id)}/>))
+              ) : ( <View style={styles.emptyState}> <ImageIcon color={Colors.textSecondary} size={40} /> <Text style={styles.emptyText}>No posts yet</Text> </View> )}
             </View>
+
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Reels</Text>
-                <View style={styles.contentCount}><Film color={Colors.textSecondary} size={16} /><Text style={styles.contentCountText}>{reels.length}</Text></View>
+                <View style={styles.contentCount}>
+                  <Film color={Colors.textSecondary} size={16} />
+                  <Text style={styles.contentCountText}>{reels.length}</Text>
+                </View>
               </View>
               {reels.length > 0 ? ( reels.map((reel) => (<ContentItem key={reel.id} type="reel" item={reel} onPress={() => handleContentPress('reel', reel.id)}/>))
               ) : ( <View style={styles.emptyState}> <Film color={Colors.textSecondary} size={40} /> <Text style={styles.emptyText}>No reels yet</Text> </View> )}
+            </View>
+
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Videos</Text>
+                <View style={styles.contentCount}>
+                  <Video color={Colors.textSecondary} size={16} />
+                  <Text style={styles.contentCountText}>{videos.length}</Text>
+                </View>
+              </View>
+              <Text style={styles.sectionHint}>Tap on a video to view detailed analytics</Text>
+              {videos.length > 0 ? ( videos.map((video) => (<ContentItem key={video.id} type="video" item={video} onPress={() => handleContentPress('video', video.id)}/>))
+              ) : ( <View style={styles.emptyState}> <Video color={Colors.textSecondary} size={40} /> <Text style={styles.emptyText}>No videos yet. Create a channel to upload videos!</Text> </View> )}
             </View>
           </>
         )}
@@ -479,7 +564,7 @@ export default function CreatorStudioScreen() {
         {activeTab === 'earnings' && (
           <>
             {isMonetized ? (
-              /* --- STATE 1: MONETIZED DASHBOARD --- */
+              /* --- STATE 1: MONETIZED DASHBOARD (Existing Logic) --- */
               <>
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Total Earnings</Text>
@@ -498,6 +583,10 @@ export default function CreatorStudioScreen() {
                     <View style={styles.earningsRow}>
                       <Text style={styles.earningsLabel}>Pending:</Text>
                       <Text style={[styles.earningsValue, { color: Colors.warning }]}>${earnings?.pending_earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</Text>
+                    </View>
+                    <View style={styles.earningsRow}>
+                      <Text style={styles.earningsLabel}>Paid Out:</Text>
+                      <Text style={[styles.earningsValue, { color: Colors.success }]}>${earnings?.paid_earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</Text>
                     </View>
                   </View>
                 </View>
@@ -642,7 +731,7 @@ const styles = StyleSheet.create({
     analyticsStatTitle: { fontSize: 14, color: Colors.textSecondary },
     statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 16 },
     statCard: { width: (width - 48) / 2, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border, justifyContent: 'space-between', minHeight: 120 },
-    statIcon: { marginBottom: 10, alignSelf: 'flex-start },
+    statIcon: { marginBottom: 10, alignSelf: 'flex-start' }, // Corrected property here
     statTitle: { fontSize: 13, color: Colors.textSecondary },
     statValue: { fontSize: 28, fontWeight: '800' as const, color: Colors.text },
     statChange: { fontSize: 12, fontWeight: '600' as const, marginTop: 4 },
@@ -677,7 +766,7 @@ const styles = StyleSheet.create({
     withdrawNote: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18 },
     withdrawNoteDanger: { color: Colors.error, fontWeight: '600' as const },
     earningsBreakdown: { marginTop: 16, gap: 12 },
-    earningsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    earningsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center },
     earningsLabel: { fontSize: 15, color: Colors.textSecondary },
     earningsValue: { fontSize: 16, fontWeight: '600' as const, color: Colors.text },
     
@@ -705,13 +794,13 @@ const styles = StyleSheet.create({
 
     reelThumbnailContainer: { width: 70, aspectRatio: 9 / 16 },
     viralScoreBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: Colors.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text },
+    viralScoreText: { fontSize: 11, fontWeight: '700' as const, color: Colors.text, },
     
     centerContent: { justifyContent: 'center', alignItems: 'center', padding: 32 },
     loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
     noChannelTitle: { fontSize: 24, fontWeight: '700' as const, color: Colors.text, marginTop: 24, marginBottom: 8, textAlign: 'center' },
     noChannelSubtitle: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 32, paddingHorizontal: 16, },
-    createChannelButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
+    createChannelButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, },
     createChannelButtonText: { fontSize: 16, fontWeight: '700' as const, color: Colors.text },
     createChannelContent: { padding: 16 },
     createChannelTitle: { fontSize: 28, fontWeight: '700' as const, color: Colors.text, marginBottom: 12 },
