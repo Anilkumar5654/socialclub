@@ -58,6 +58,8 @@ export default function EditChannelScreen() {
   const [channelHandle, setChannelHandle] = useState('');
   const [channelBio, setChannelBio] = useState('');
   const [channelAbout, setChannelAbout] = useState('');
+  
+  // States to hold local URI for pending uploads
   const [newAvatarUri, setNewAvatarUri] = useState<string | null>(null);
   const [newCoverUri, setNewCoverUri] = useState<string | null>(null);
   
@@ -112,6 +114,13 @@ export default function EditChannelScreen() {
   // --- MEDIA PICKERS (MOCK) ---
   const pickMedia = async (type: 'avatar' | 'cover') => {
     try {
+        // Request permissions if needed
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permissionResult.granted) {
+            Alert.alert("Permission required", "Permission to access media library is needed to upload images.");
+            return;
+        }
+
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
@@ -133,39 +142,27 @@ export default function EditChannelScreen() {
   };
 
 
-  // --- MUTATION: Update Channel Details ---
+  // --- MUTATION: Update Channel Details (Now sends FormData) ---
   const updateChannelMutation = useMutation({
-    mutationFn: async (data: { textData: Partial<ChannelData> }) => {
-      if (!channel?.id) throw new Error('Channel ID is missing');
-      
-      const { textData } = data;
-      
-      // 1. Media Upload Logic Placeholder (In a real app, upload avatar/cover first)
-      //    We assume media upload APIs return URLs that would then be passed in textData.
-      
-      // 2. Determine if we are sending JSON or FormData
-      //    Since we only have textData and channel ID, we send JSON.
-      //    If newAvatarUri or newCoverUri were set, we would need to switch to FormData.
-
-      // 3. Add handle update flag if the handle was changed
-      if (initialHandle !== textData.handle) {
-        if (!canChangeHandle) {
-            throw new Error(`Handle can only be changed once every ${HANDLE_CHANGE_DAYS} days. ${daysRemaining} days remaining.`);
-        }
-        textData.updateHandleTime = true; // Flag for server
-      }
-      
-      return api.channels.update(channel.id, textData);
+    mutationFn: async (formData: FormData) => {
+      // NOTE: We assume api.channels.update is now configured in services/api.ts
+      // to correctly handle FormData, like the user profile update endpoint.
+      return api.channels.updateChannel(formData); // Assume a dedicated FormData function
     },
-    onSuccess: () => {
+    onSuccess: (response: any) => {
       Alert.alert('Success', 'Channel updated successfully!');
+      // Update local states based on successful server response path
+      if (response.avatar_path) channel.avatar = response.avatar_path;
+      if (response.cover_path) channel.cover_photo = response.cover_path;
+
       queryClient.invalidateQueries({ queryKey: ['my-channel-profile', currentUserId] });
       queryClient.invalidateQueries({ queryKey: ['channel-profile', channel?.id] });
       setNewAvatarUri(null);
       setNewCoverUri(null);
     },
     onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to update channel.');
+      // Server-side validation errors (like handle restriction) are caught here
+      Alert.alert('Update Failed', error.message || 'Failed to update channel.');
     },
   });
 
@@ -180,18 +177,44 @@ export default function EditChannelScreen() {
         return;
     }
 
-    const textData: Partial<ChannelData> = {
-        name: channelName.trim(),
-        handle: channelHandle.trim(),
-        bio: channelBio.trim(),
-        about_text: channelAbout.trim(),
-    };
-
-    // If media URIs are set, you would call a different mutation here
-    // that wraps the textData and the media files into FormData.
+    // 1. Construct FormData
+    const formData = new FormData();
+    formData.append('channel_id', channel.id);
     
-    // For now, call the mutation with only text data
-    updateChannelMutation.mutate({ textData });
+    // Append text fields
+    formData.append('name', channelName.trim());
+    formData.append('handle', channelHandle.trim());
+    formData.append('bio', channelBio.trim());
+    formData.append('about_text', channelAbout.trim());
+
+    // 2. Handle Handle Time Restriction Check
+    if (initialHandle !== channelHandle.trim()) {
+        if (!canChangeHandle) {
+            Alert.alert('Restriction', `Handle can be changed again in ${daysRemaining} days.`);
+            return;
+        }
+        // Send flag to PHP to update handle time
+        formData.append('updateHandleTime', 'true');
+    }
+
+    // 3. Append Media Files (If URIs are set)
+    if (newAvatarUri) {
+        // Expo needs to know the type for FormData
+        formData.append('avatar', {
+            uri: newAvatarUri,
+            name: `avatar_${channel.id}.jpg`,
+            type: 'image/jpeg',
+        } as any);
+    }
+    if (newCoverUri) {
+        formData.append('cover_photo', {
+            uri: newCoverUri,
+            name: `cover_${channel.id}.jpg`,
+            type: 'image/jpeg',
+        } as any);
+    }
+    
+    updateChannelMutation.mutate(formData);
   };
   
   // --- RENDER STATES ---
@@ -217,7 +240,7 @@ export default function EditChannelScreen() {
           </Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => router.push('/create-channel')}
+            onPress={() => router.push('/create-channel')} 
           >
             <Text style={styles.retryButtonText}>Create Channel Now</Text>
           </TouchableOpacity>
