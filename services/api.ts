@@ -252,7 +252,6 @@ class ApiClient {
     },
     upload: async (formData: FormData) => this.request('/reels/upload', { method: 'POST', body: formData }),
 
-    // --- REEL VIEW TRACKING ---
     trackView: async (reelId: string, watchDuration: number, completionRate: number) => {
       let deviceId = 'unknown';
       try {
@@ -262,7 +261,6 @@ class ApiClient {
         if(id) deviceId = id;
       } catch (e) {}
 
-      // Using the generic track-watch endpoint for algorithm data
       return this.request('/videos/track-watch', {
         method: 'POST',
         body: JSON.stringify({
@@ -284,7 +282,6 @@ class ApiClient {
     },
     getRecommended: async (videoId: string) => this.request<{ videos: any[] }>(`/videos/recommended?video_id=${videoId}`),
     
-    // --- VIDEO VIEW TRACKING (Fixed Logic) ---
     view: async (id: string) => {
       let deviceId = 'unknown_device';
       try {
@@ -295,13 +292,11 @@ class ApiClient {
       } catch (err) {
         console.log('[API] Device ID fetch error:', err);
       }
-      console.log('[API] Calling POST /videos/action/view', { id, deviceId });
       return this.request(`/videos/action/view`, {
         method: 'POST', body: JSON.stringify({ video_id: id, device_id: deviceId }),
       });
     },
 
-    // Other video methods...
     like: async (id: string) => this.request<{ isLiked: boolean; likes: number }>('/videos/action/like', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
     unlike: async (id: string) => this.request<{ isLiked: boolean; likes: number }>('/videos/action/unlike', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
     comment: async (id: string, content: string) => this.request<{ comment: any }>('/videos/action/comment', { method: 'POST', body: JSON.stringify({ video_id: id, content }) }),
@@ -331,21 +326,33 @@ class ApiClient {
     checkUserChannel: async (userId: string) => this.request(`/channels/check-user-channel?user_id=${userId}`),
     getChannel: async (channelId: string) => this.request<{ channel: any }>(`/channels/details?id=${channelId}`),
     
-    // --- SUBSCRIBE METHODS ---
     subscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/subscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     unsubscribe: async (channelId: string) => this.request<{ isSubscribed: boolean; subscribers_count: number }>('/channels/action/unsubscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     
     create: async (data: any) => this.request('/channels/create', { method: 'POST', body: JSON.stringify(data) }),
     update: async (channelId: string, data: any) => this.request(`/channels/update`, { method: 'PUT', body: JSON.stringify({ ...data, channel_id: channelId }) }),
   };
+  
+  // --- CRITICAL FIX: CREATOR MODULE ADDED ---
+  creator = {
+    getStats: async () => this.request<{ stats: any }>('/creator/stats'),
+    getEarnings: async (period: 'week' | 'month' | 'year' = 'month') => this.request<{ earnings: any }>(`/creator/earnings?period=${period}`),
+    getContent: async (type: 'posts' | 'reels' | 'videos', page: number = 1) => {
+      return this.request<{ content: any[]; hasMore: boolean }>(`/creator/content/${type}?page=${page}`);
+    },
+    getVideoDetailedAnalytics: async (videoId: string) => {
+      return this.request<{ analytics: any }>(`/creator/video-details-analytics?video_id=${videoId}`);
+    },
+  };
+  // --- END CREATOR MODULE ---
 
-  // Keep other modules (search, notifications, messages, reports, admin, creator) as they are...
-  // (Assuming they are correctly implemented in your previous version, I'm focusing on the fixes requested)
+
   search = {
       all: async (query: string, page: number = 1) => this.request(`/search?q=${encodeURIComponent(query)}&page=${page}`),
-      // ... other search methods
+      users: async (query: string, page: number = 1) => this.request(`/search/users?q=${encodeURIComponent(query)}&page=${page}`),
+      posts: async (query: string, page: number = 1) => this.request(`/search/posts?q=${encodeURIComponent(query)}&page=${page}`),
+      hashtags: async (tag: string, page: number = 1) => this.request(`/search/hashtags?tag=${encodeURIComponent(tag)}&page=${page}`),
   };
-  // ... Add back other modules if missing from copy-paste
 }
 
 export const api = new ApiClient(API_BASE_URL, MEDIA_BASE_URL);
