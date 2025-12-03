@@ -1,17 +1,36 @@
-import { InterstitialAd, AdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { Platform } from 'react-native';
 import { api } from './api'; 
 
-// ⚠️ REPLACE WITH REAL ADMOB ID FOR PRODUCTION
-// Use TestIds.INTERSTITIAL for development to avoid account bans
-const AD_UNIT_ID = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-xxxxxxxxxxxxx/yyyyyyyyyy';
+// Variable declarations to hold the module dynamically
+let InterstitialAd: any = null;
+let AdEventType: any = null;
+let TestIds: any = null;
 
-let interstitial: InterstitialAd | null = null;
+// 🔥 CRITICAL FIX: Only require the native module if NOT on Web
+if (Platform.OS !== 'web') {
+  try {
+    const MobileAds = require('react-native-google-mobile-ads');
+    InterstitialAd = MobileAds.InterstitialAd;
+    AdEventType = MobileAds.AdEventType;
+    TestIds = MobileAds.TestIds;
+  } catch (e) {
+    console.warn('AdMob module not found or failed to load.');
+  }
+}
+
+// ⚠️ REPLACE WITH REAL ADMOB ID FOR PRODUCTION
+const AD_UNIT_ID = (TestIds) ? TestIds.INTERSTITIAL : 'ca-app-pub-xxxxxxxxxxxxx/yyyyyyyyyy';
+
+let interstitial: any = null;
 let adLoaded = false;
 
 export const VideoAdManager = {
   
   // 1. Load Ad
   loadAd: () => {
+    // If on Web or module not loaded, stop here
+    if (Platform.OS === 'web' || !InterstitialAd) return;
+
     if (adLoaded) return; 
 
     interstitial = InterstitialAd.createForAdRequest(AD_UNIT_ID, {
@@ -30,10 +49,9 @@ export const VideoAdManager = {
       VideoAdManager.loadAd(); 
     });
 
-    // 🔥 TRACKING: When revenue is generated
-    interstitial.addAdEventListener(AdEventType.PAID, (params) => {
+    // TRACKING: When revenue is generated
+    interstitial.addAdEventListener(AdEventType.PAID, (params: any) => {
       console.log('[AdManager] Revenue:', params);
-      // Future: You can send revenue tracking to backend here
     });
 
     interstitial.load();
@@ -41,6 +59,12 @@ export const VideoAdManager = {
 
   // 2. Show Ad Logic
   showAd: async (currentVideo: any) => {
+    // If on Web, skip ad logic completely
+    if (Platform.OS === 'web' || !InterstitialAd) {
+      console.log('[AdManager] Web detected, skipping ad.');
+      return false;
+    }
+
     if (adLoaded && interstitial) {
       console.log('[AdManager] Showing Ad...');
       
@@ -60,12 +84,12 @@ export const VideoAdManager = {
   // 3. Backend Tracking
   trackImpression: async (video: any) => {
     try {
-      // Fallback revenue (Real calculation happens via backend cron job)
+      // Fallback revenue
       const estimatedRevenue = 0.001; 
 
       await api.ads.trackImpression({ 
         video_id: video.id,
-        creator_id: video.user?.id || video.user_id, // Safety check for ID
+        creator_id: video.user?.id || video.user_id,
         ad_network: 'admob',
         revenue: estimatedRevenue 
       });
