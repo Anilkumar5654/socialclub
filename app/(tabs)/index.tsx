@@ -1,4 +1,4 @@
-import { Image } from 'expo-image'; 
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import {
   Heart,
@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Send,
   X,
+  ShieldAlert,
 } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
@@ -33,7 +34,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-// 🔥 IMPORT StoryBar from the new location (Components/StoryBar.tsx)
 import StoryBar from '@/components/StoryBar';
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -44,7 +44,85 @@ import { Post } from '@/types';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// CommentsModal Component (Tightly coupled with PostItem)
+// ReportModal Component
+// ----------------------------------------------------------------
+
+function ReportModal({
+  visible,
+  onClose,
+  postId,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  postId: string;
+}) {
+  const [description, setDescription] = useState('');
+  
+  const reportReasons = [
+    'Spam or Scam',
+    'Inappropriate Content',
+    'Harassment or Bullying',
+    'Violence',
+    'False Information',
+    'Other'
+  ];
+
+  const reportMutation = useMutation({
+    mutationFn: (data: { reason: string; desc: string }) => 
+      api.posts.report(postId, data.reason, data.desc),
+    onSuccess: () => {
+      Alert.alert('Report Submitted', 'Thank you for reporting. We will review this post.');
+      onClose();
+      setDescription('');
+    },
+    onError: (error: any) => {
+      Alert.alert('Error', error.message || 'Failed to submit report');
+    },
+  });
+
+  const handleReport = (reason: string) => {
+    reportMutation.mutate({ reason, desc: description });
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.reportModalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Report Post</Text>
+            <TouchableOpacity onPress={onClose}>
+              <X color={Colors.text} size={24} />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={styles.reportSubtitle}>Why are you reporting this post?</Text>
+
+          {reportMutation.isPending ? (
+            <View style={styles.modalLoadingContainer}>
+              <ActivityIndicator color={Colors.primary} size="large" />
+            </View>
+          ) : (
+            <ScrollView>
+              {reportReasons.map((reason, index) => (
+                <TouchableOpacity 
+                  key={index} 
+                  style={styles.reportOption}
+                  onPress={() => handleReport(reason)}
+                >
+                  <Text style={styles.reportOptionText}>{reason}</Text>
+                  <ShieldAlert size={18} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ----------------------------------------------------------------
+// CommentsModal Component (Updated with DELETE Logic)
 // ----------------------------------------------------------------
 
 function CommentsModal({
@@ -56,6 +134,7 @@ function CommentsModal({
   onClose: () => void;
   postId: string;
 }) {
+  const { user: currentUser } = useAuth();
   const [comment, setComment] = useState('');
   const queryClient = useQueryClient();
 
@@ -65,6 +144,7 @@ function CommentsModal({
     enabled: visible,
   });
 
+  // Post Comment Mutation
   const commentMutation = useMutation({
     mutationFn: (content: string) => api.posts.comment(postId, content),
     onSuccess: () => {
@@ -78,12 +158,40 @@ function CommentsModal({
     },
   });
 
+  // Delete Comment Mutation
+  const deleteCommentMutation = useMutation({
+    mutationFn: (commentId: string) => api.posts.deleteComment(commentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] }); // Refresh counts
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
+    },
+    onError: (error: any) => {
+      Alert.alert('Error', error.message || 'Failed to delete comment');
+    },
+  });
+
   const handleSubmit = () => {
-    if (!comment.trim()) {
-      Alert.alert('Error', 'Please enter a comment');
-      return;
-    }
+    if (!comment.trim()) return;
     commentMutation.mutate(comment);
+  };
+
+  const handleLongPressComment = (commentItem: any) => {
+    // Only allow deletion if the current user owns the comment
+    if (currentUser?.id === commentItem.user_id || currentUser?.id === commentItem.user?.id) {
+      Alert.alert(
+        'Delete Comment',
+        'Are you sure you want to delete this comment?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Delete', 
+            style: 'destructive', 
+            onPress: () => deleteCommentMutation.mutate(commentItem.id) 
+          }
+        ]
+      );
+    }
   };
 
   const comments = commentsData?.comments || [];
@@ -110,14 +218,11 @@ function CommentsModal({
               <TouchableOpacity
                 style={styles.commentItem}
                 onPress={() => {
-                  if (item.user?.id) {
-                    onClose();
-                    router.push({
-                      pathname: '/user/[userId]',
-                      params: { userId: item.user.id },
-                    });
-                  }
+                  onClose();
+                  router.push({ pathname: '/user/[userId]', params: { userId: item.user.id } });
                 }}
+                onLongPress={() => handleLongPressComment(item)}
+                delayLongPress={500}
               >
                 <Image
                   source={{
@@ -130,9 +235,7 @@ function CommentsModal({
                   style={styles.commentAvatar}
                 />
                 <View style={styles.commentContent}>
-                  <Text style={styles.commentUsername}>
-                    {item.user?.username || 'Unknown'}
-                  </Text>
+                  <Text style={styles.commentUsername}>{item.user?.username || 'Unknown'}</Text>
                   <Text style={styles.commentText}>{item.content}</Text>
                   <Text style={styles.commentTime}>
                     {formatTimeAgo(item.created_at || item.timestamp)}
@@ -159,23 +262,14 @@ function CommentsModal({
             multiline
           />
           <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!comment.trim() || commentMutation.isPending) &&
-                styles.sendButtonDisabled,
-            ]}
+            style={[styles.sendButton, (!comment.trim() || commentMutation.isPending) && styles.sendButtonDisabled]}
             onPress={handleSubmit}
             disabled={!comment.trim() || commentMutation.isPending}
           >
             {commentMutation.isPending ? (
               <ActivityIndicator size="small" color={Colors.primary} />
             ) : (
-              <Send
-                color={
-                  comment.trim() ? Colors.primary : Colors.textMuted
-                }
-                size={20}
-              />
+              <Send color={comment.trim() ? Colors.primary : Colors.textMuted} size={20} />
             )}
           </TouchableOpacity>
         </View>
@@ -185,27 +279,30 @@ function CommentsModal({
 }
 
 // ----------------------------------------------------------------
-// PostItem Component (Tightly coupled with Home Feed)
+// PostItem Component
 // ----------------------------------------------------------------
 
 function PostItem({ post }: { post: Post }) {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  
   const [isLiked, setIsLiked] = useState(post.isLiked);
   const [isSaved, setIsSaved] = useState(post.isSaved);
   const [likes, setLikes] = useState(post.likes);
+  
   const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  
   const [isFollowing, setIsFollowing] = useState(
     Boolean((post.user as any)?.is_following ?? (post.user as any)?.isFollowing ?? false)
   );
 
+  // Mutations
   const likeMutation = useMutation({
     mutationFn: (postId: string) => api.posts.like(postId),
     onSuccess: (data) => {
       setIsLiked(data.isLiked);
       setLikes(data.likes);
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
-      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
   });
 
@@ -214,33 +311,17 @@ function PostItem({ post }: { post: Post }) {
     onSuccess: (data) => {
       setIsLiked(data.isLiked);
       setLikes(data.likes);
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
-      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
   });
 
   const followMutation = useMutation({
     mutationFn: (userId: string) => api.users.follow(userId),
-    onSuccess: (data) => {
-      setIsFollowing(data.isFollowing);
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
-      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to follow user');
-    },
+    onSuccess: (data) => setIsFollowing(data.isFollowing),
   });
 
   const unfollowMutation = useMutation({
     mutationFn: (userId: string) => api.users.unfollow(userId),
-    onSuccess: (data) => {
-      setIsFollowing(data.isFollowing);
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
-      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to unfollow user');
-    },
+    onSuccess: (data) => setIsFollowing(data.isFollowing),
   });
 
   const deleteMutation = useMutation({
@@ -248,235 +329,118 @@ function PostItem({ post }: { post: Post }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
       queryClient.invalidateQueries({ queryKey: ['feed-following'] });
-      Alert.alert('Success', 'Post deleted successfully');
+      Alert.alert('Deleted', 'Post has been removed.');
     },
-    onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to delete post');
-    },
+    onError: (error: any) => Alert.alert('Error', error.message || 'Failed to delete'),
   });
 
   const shareMutation = useMutation({
     mutationFn: (postId: string) => api.posts.share(postId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
-      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
-    },
   });
 
-  const handleLike = () => {
-    if (isLiked) {
-      unlikeMutation.mutate(post.id);
-    } else {
-      likeMutation.mutate(post.id);
-    }
-  };
-
-  const handleFollow = () => {
-    if (isFollowing) {
-      unfollowMutation.mutate(post.user.id);
-    } else {
-      followMutation.mutate(post.user.id);
-    }
-  };
+  // Handlers
+  const handleLike = () => isLiked ? unlikeMutation.mutate(post.id) : likeMutation.mutate(post.id);
+  
+  const handleFollow = () => isFollowing ? unfollowMutation.mutate(post.user.id) : followMutation.mutate(post.user.id);
 
   const handleShare = async () => {
     try {
-      const shareUrl = `https://moviedbr.com/posts/${post.id}`;
+      const shareUrl = `https://socialclub.com/posts/${post.id}`;
       shareMutation.mutate(post.id);
-
-      await RNShare.share({
-        message: `Check out this post: ${shareUrl}`,
-        url: shareUrl,
-      });
-    } catch (error: any) {
-      if (error.message !== 'User did not share') {
-        console.error('Share error:', error);
-      }
+      await RNShare.share({ message: `Check out this post: ${shareUrl}`, url: shareUrl });
+    } catch (error) {
+      console.error(error);
     }
   };
 
   const showPostActions = () => {
     const isOwnPost = currentUser?.id === post.user.id;
-
-    const options = isOwnPost
-      ? ['Delete', 'Cancel']
-      : ['Report', 'Mute', 'Cancel'];
+    const options = isOwnPost ? ['Delete', 'Cancel'] : ['Report', 'Cancel'];
+    const destructiveIndex = isOwnPost ? 0 : -1;
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          destructiveButtonIndex: 0,
-          cancelButtonIndex: options.length - 1,
-        },
+        { options, destructiveButtonIndex: destructiveIndex, cancelButtonIndex: options.length - 1 },
         (buttonIndex) => {
-          if (isOwnPost) {
-            if (buttonIndex === 0) {
-              Alert.alert(
-                'Delete Post',
-                'Are you sure you want to delete this post?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () => deleteMutation.mutate(post.id),
-                  },
-                ]
-              );
-            }
-          } else {
-            if (buttonIndex === 0) {
-              Alert.alert('Report', 'Report functionality coming soon');
-            } else if (buttonIndex === 1) {
-              Alert.alert('Mute', 'Mute functionality coming soon');
-            }
+          if (isOwnPost && buttonIndex === 0) {
+            Alert.alert('Delete Post', 'Are you sure?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(post.id) }
+            ]);
+          } else if (!isOwnPost && buttonIndex === 0) {
+            setReportModalVisible(true);
           }
         }
       );
     } else {
       Alert.alert(
-        'Post Actions',
-        'Choose an action',
+        'Options',
+        '',
         isOwnPost
           ? [
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () => {
-                  Alert.alert(
-                    'Delete Post',
-                    'Are you sure you want to delete this post?',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => deleteMutation.mutate(post.id),
-                      },
-                    ]
-                  );
-                },
-              },
-              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(post.id) },
+              { text: 'Cancel', style: 'cancel' }
             ]
           : [
-              {
-                text: 'Report',
-                onPress: () =>
-                  Alert.alert('Report', 'Report functionality coming soon'),
-              },
-              {
-                text: 'Mute',
-                onPress: () =>
-                  Alert.alert('Mute', 'Mute functionality coming soon'),
-              },
-              { text: 'Cancel', style: 'cancel' },
+              { text: 'Report', onPress: () => setReportModalVisible(true) },
+              { text: 'Cancel', style: 'cancel' }
             ]
       );
     }
   };
 
-  const handleUserPress = () => {
-    router.push({ pathname: '/user/[userId]', params: { userId: post.user.id } });
-  };
-  
-  // Reels/Videos are handled in separate tabs, so no tap logic needed here
-
-  const getImageUri = (uri: string) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
+  const getImageUri = (uri: string) => uri ? (uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`) : '';
 
   return (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <TouchableOpacity style={styles.postUserInfo} onPress={handleUserPress}>
-          <Image 
-            source={{ uri: getImageUri(post.user.avatar) }} 
-            style={styles.postAvatar} 
-          />
+        <TouchableOpacity style={styles.postUserInfo} onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: post.user.id } })}>
+          <Image source={{ uri: getImageUri(post.user.avatar) }} style={styles.postAvatar} />
+          
           <View style={styles.postUserDetails}>
             <View style={styles.userNameRow}>
-              <Text style={styles.postUsername}>{post.user.username}</Text>
-              {post.user.isVerified && (
-                <Text style={styles.verifiedBadge}>✓</Text>
-              )}
+              <Text style={styles.postName} numberOfLines={1}>
+                {post.user.name || post.user.username}
+              </Text>
+              {post.user.isVerified && <Text style={styles.verifiedBadge}>✓</Text>}
             </View>
-            {post.location && (
-              <Text style={styles.postLocation}>{post.location}</Text>
-            )}
+            {post.location && <Text style={styles.postLocation}>{post.location}</Text>}
           </View>
+
           {currentUser?.id !== post.user.id && (
             <TouchableOpacity
-              style={[
-                styles.followButtonSmall,
-                isFollowing && styles.followingButtonSmall,
-              ]}
+              style={[styles.followButtonSmall, isFollowing && styles.followingButtonSmall]}
               onPress={handleFollow}
               disabled={followMutation.isPending || unfollowMutation.isPending}
             >
-              <Text style={[
-                styles.followButtonSmallText,
-                isFollowing && styles.followingButtonSmallText,
-              ]}>
-                {followMutation.isPending || unfollowMutation.isPending
-                  ? '...'
-                  : isFollowing
-                    ? 'Following'
-                    : 'Follow'}
+              <Text style={[styles.followButtonSmallText, isFollowing && styles.followingButtonSmallText]}>
+                {isFollowing ? 'Following' : 'Follow'}
               </Text>
             </TouchableOpacity>
           )}
         </TouchableOpacity>
-        <TouchableOpacity onPress={showPostActions}>
+
+        <TouchableOpacity onPress={showPostActions} style={styles.moreButton}>
           <MoreHorizontal color={Colors.text} size={24} />
         </TouchableOpacity>
       </View>
 
-      {/* Post Type: TEXT */}
-      {post.type === 'text' && post.content && (
-        <Text style={styles.postTextContent}>{post.content}</Text>
-      )}
-
-      {/* Post Type: PHOTO (Image Carousel/Single Image) */}
+      {post.type === 'text' && post.content && <Text style={styles.postTextContent}>{post.content}</Text>}
+      
       {post.images && post.images.length > 0 && (
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          style={styles.postImagesContainer}
-        >
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={styles.postImagesContainer}>
           {post.images.map((image, index) => (
-            <Image
-              key={index}
-              source={{ uri: getImageUri(image) }}
-              style={styles.postImage}
-              contentFit="cover"
-            />
+            <Image key={index} source={{ uri: getImageUri(image) }} style={styles.postImage} contentFit="cover" />
           ))}
         </ScrollView>
       )}
-      
-      {/* Short/Video content rendering logic removed as per user request */}
 
       <View style={styles.postActions}>
         <View style={styles.postActionsLeft}>
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={handleLike}
-            disabled={likeMutation.isPending || unlikeMutation.isPending}
-          >
-            <Heart
-              color={isLiked ? Colors.primary : Colors.text}
-              fill={isLiked ? Colors.primary : 'transparent'}
-              size={26}
-            />
+          <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+            <Heart color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : 'transparent'} size={26} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => setCommentsModalVisible(true)}
-          >
+          <TouchableOpacity style={styles.actionButton} onPress={() => setCommentsModalVisible(true)}>
             <MessageCircle color={Colors.text} size={26} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
@@ -484,51 +448,34 @@ function PostItem({ post }: { post: Post }) {
           </TouchableOpacity>
         </View>
         <TouchableOpacity onPress={() => setIsSaved(!isSaved)}>
-          <Bookmark
-            color={isSaved ? Colors.primary : Colors.text}
-            fill={isSaved ? Colors.primary : 'transparent'}
-            size={24}
-          />
+          <Bookmark color={isSaved ? Colors.primary : Colors.text} fill={isSaved ? Colors.primary : 'transparent'} size={24} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.postStats}>
         <Text style={styles.likesText}>{likes.toLocaleString()} likes</Text>
-        
-        {/* Post Caption for Text/Photo (Showing caption if content exists) */}
-        {(post.type === 'photo' || post.type === 'text') &&
-          post.content && (
-            <Text style={styles.postCaption}>
-              <Text style={styles.postCaptionUsername}>
-                {post.user.username}{' '}
-              </Text>
-              {post.content}
-            </Text>
-          )}
-          
+        {(post.type === 'photo' || post.type === 'text') && post.content && (
+          <Text style={styles.postCaption}>
+            <Text style={styles.postCaptionUsername}>{post.user.name || post.user.username} </Text>
+            {post.content}
+          </Text>
+        )}
         {post.comments > 0 && (
           <TouchableOpacity onPress={() => setCommentsModalVisible(true)}>
-            <Text style={styles.viewComments}>
-              View all {post.comments} comments
-            </Text>
+            <Text style={styles.viewComments}>View all {post.comments} comments</Text>
           </TouchableOpacity>
         )}
-        <Text style={styles.postTime}>
-          {formatTimeAgo(post.created_at || post.timestamp)}
-        </Text>
+        <Text style={styles.postTime}>{formatTimeAgo(post.created_at || post.timestamp)}</Text>
       </View>
 
-      <CommentsModal
-        visible={commentsModalVisible}
-        onClose={() => setCommentsModalVisible(false)}
-        postId={post.id}
-      />
+      <CommentsModal visible={commentsModalVisible} onClose={() => setCommentsModalVisible(false)} postId={post.id} />
+      <ReportModal visible={reportModalVisible} onClose={() => setReportModalVisible(false)} postId={post.id} />
     </View>
   );
 }
 
 // ----------------------------------------------------------------
-// HomeScreen Component (Main Export)
+// HomeScreen Component
 // ----------------------------------------------------------------
 
 export default function HomeScreen() {
@@ -536,44 +483,24 @@ export default function HomeScreen() {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<'for-you' | 'following'>('for-you');
 
-  // useQuery for For You Feed
-  const { 
-    data: forYouData, 
-    isLoading: isLoadingForYou, 
-    isError: isErrorForYou,
-    refetch: refetchForYou,
-    isRefetching: isRefetchingForYou,
-  } = useQuery({
+  const { data: forYouData, refetch: refetchForYou, isRefetching: isRefetchingForYou, isLoading: isLoadingForYou } = useQuery({
     queryKey: ['feed-for-you'],
     queryFn: () => api.home.getFeed(1, 10, 'for-you'),
     enabled: isAuthenticated && activeTab === 'for-you',
   });
 
-  // useQuery for Following Feed
-  const { 
-    data: followingData, 
-    isLoading: isLoadingFollowing, 
-    isError: isErrorFollowing,
-    refetch: refetchFollowing,
-    isRefetching: isRefetchingFollowing,
-  } = useQuery({
+  const { data: followingData, refetch: refetchFollowing, isRefetching: isRefetchingFollowing, isLoading: isLoadingFollowing } = useQuery({
     queryKey: ['feed-following'],
     queryFn: () => api.home.getFeed(1, 10, 'following'),
     enabled: isAuthenticated && activeTab === 'following',
   });
 
-  const isLoading = activeTab === 'for-you' ? isLoadingForYou : isLoadingFollowing;
-  const isError = activeTab === 'for-you' ? isErrorForYou : isErrorFollowing;
-  const isRefetching = activeTab === 'for-you' ? isRefetchingForYou : isRefetchingFollowing;
-  const refetch = activeTab === 'for-you' ? refetchForYou : refetchFollowing;
-  
   const feedData = activeTab === 'for-you' ? forYouData : followingData;
-  const allFeedItems = feedData?.posts || [];
+  const isLoading = activeTab === 'for-you' ? isLoadingForYou : isLoadingFollowing;
+  const refetch = activeTab === 'for-you' ? refetchForYou : refetchFollowing;
+  const isRefetching = activeTab === 'for-you' ? isRefetchingForYou : isRefetchingFollowing;
 
-  // 🔥 FINAL FILTER: केवल 'text' और 'photo' types को होम फीड में रखें
-  const posts = allFeedItems.filter(item => 
-    item.type === 'text' || item.type === 'photo'
-  ); 
+  const posts = (feedData?.posts || []).filter(item => item.type === 'text' || item.type === 'photo');
 
   if (!isAuthenticated) {
     return (
@@ -583,10 +510,7 @@ export default function HomeScreen() {
         </View>
         <View style={styles.centerContent}>
           <Text style={styles.notAuthText}>Please log in to see your feed</Text>
-          <TouchableOpacity
-            style={styles.loginButton}
-            onPress={() => router.push('/auth/login')}
-          >
+          <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/auth/login')}>
             <Text style={styles.loginButtonText}>Log In</Text>
           </TouchableOpacity>
         </View>
@@ -599,57 +523,30 @@ export default function HomeScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.logo}>SocialHub</Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => router.push('/search')}
-          >
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push('/search')}>
             <Search color={Colors.text} size={24} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => router.push('/notifications')}
-          >
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push('/notifications')}>
             <Bell color={Colors.text} size={24} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => router.push('/messages')}
-          >
+          <TouchableOpacity style={styles.headerIcon} onPress={() => router.push('/messages')}>
             <MessageSquare color={Colors.text} size={24} />
           </TouchableOpacity>
         </View>
       </View>
 
       <View style={styles.tabsContainer}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'for-you' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('for-you')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'for-you' && styles.tabButtonTextActive]}>
-            For You
-          </Text>
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'for-you' && styles.tabButtonActive]} onPress={() => setActiveTab('for-you')}>
+          <Text style={[styles.tabButtonText, activeTab === 'for-you' && styles.tabButtonTextActive]}>For You</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'following' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('following')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'following' && styles.tabButtonTextActive]}>
-            Following
-          </Text>
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'following' && styles.tabButtonActive]} onPress={() => setActiveTab('following')}>
+          <Text style={[styles.tabButtonText, activeTab === 'following' && styles.tabButtonTextActive]}>Following</Text>
         </TouchableOpacity>
       </View>
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading your feed...</Text>
-        </View>
-      ) : isError ? (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Failed to load feed</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -659,21 +556,10 @@ export default function HomeScreen() {
           ListHeaderComponent={StoryBar}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.feedContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              tintColor={Colors.primary}
-            />
-          }
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {activeTab === 'following'
-                    ? 'Follow users to see their latest posts here.'
-                    : 'No viral posts found for you.'
-                }
-              </Text>
+              <Text style={styles.emptyText}>No viral posts found for you.</Text>
             </View>
           }
         />
@@ -702,7 +588,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     fontSize: 26,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     color: Colors.text,
     letterSpacing: -0.5,
   },
@@ -731,7 +617,7 @@ const styles = StyleSheet.create({
   },
   tabButtonText: {
     fontSize: 15,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     color: Colors.textSecondary,
   },
   tabButtonTextActive: {
@@ -755,24 +641,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    marginRight: 12, 
+  },
+  moreButton: {
+    padding: 4,
   },
   postUserDetails: {
     flex: 1,
   },
   postAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44, 
+    height: 44,
+    borderRadius: 22,
   },
   userNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  postUsername: {
+  postName: {
     color: Colors.text,
-    fontSize: 14,
-    fontWeight: '600' as const,
+    fontSize: 15,
+    fontWeight: '600',
   },
   verifiedBadge: {
     color: Colors.info,
@@ -818,7 +708,7 @@ const styles = StyleSheet.create({
   likesText: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     marginBottom: 6,
   },
   postCaption: {
@@ -828,7 +718,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   postCaptionUsername: {
-    fontWeight: '600' as const,
+    fontWeight: '600',
   },
   viewComments: {
     color: Colors.textSecondary,
@@ -861,7 +751,7 @@ const styles = StyleSheet.create({
   },
   loginButtonText: {
     fontSize: 16,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     color: Colors.text,
   },
   loadingContainer: {
@@ -869,11 +759,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: Colors.textSecondary,
   },
   errorContainer: {
     flex: 1,
@@ -895,7 +780,7 @@ const styles = StyleSheet.create({
   },
   retryButtonText: {
     fontSize: 16,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     color: Colors.text,
   },
   emptyContainer: {
@@ -923,7 +808,7 @@ const styles = StyleSheet.create({
   },
   followButtonSmallText: {
     fontSize: 13,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     color: Colors.text,
   },
   followingButtonSmallText: {
@@ -943,7 +828,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     color: Colors.text,
   },
   modalLoadingContainer: {
@@ -969,7 +854,7 @@ const styles = StyleSheet.create({
   },
   commentUsername: {
     fontSize: 14,
-    fontWeight: '600' as const,
+    fontWeight: '600',
     color: Colors.text,
     marginBottom: 4,
   },
@@ -1018,5 +903,36 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  reportModalContainer: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    maxHeight: '80%',
+    paddingBottom: 20,
+  },
+  reportSubtitle: {
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '600',
+    padding: 16,
+  },
+  reportOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  reportOptionText: {
+    fontSize: 16,
+    color: Colors.text,
   },
 });
