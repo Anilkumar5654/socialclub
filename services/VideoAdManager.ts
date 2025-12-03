@@ -5,6 +5,8 @@ import { api } from './api';
 let InterstitialAd: any = null;
 let AdEventType: any = null;
 let TestIds: any = null;
+let MobileAdsModule: any = null; // New variable to hold the module
+let isAdMobInitialized = false; // New flag
 
 // 🔥 CRITICAL FIX: Only require the native module if NOT on Web
 if (Platform.OS !== 'web') {
@@ -13,6 +15,19 @@ if (Platform.OS !== 'web') {
     InterstitialAd = MobileAds.InterstitialAd;
     AdEventType = MobileAds.AdEventType;
     TestIds = MobileAds.TestIds;
+    MobileAdsModule = MobileAds; // Save the module reference
+
+    // 🛑 CRITICAL: Initialize AdMob SDK 
+    MobileAds.mobileAds()
+      .initialize()
+      .then((status: any) => {
+        console.log('[AdManager] AdMob SDK Initialized successfully.');
+        isAdMobInitialized = true;
+      })
+      .catch((error: any) => {
+        console.error('[AdManager] AdMob Initialization Failed:', error);
+      });
+
   } catch (e) {
     console.warn('AdMob module not found or failed to load.');
   }
@@ -28,8 +43,13 @@ export const VideoAdManager = {
   
   // 1. Load Ad
   loadAd: () => {
-    // If on Web or module not loaded, stop here
-    if (Platform.OS === 'web' || !InterstitialAd) return;
+    // If on Web, module not loaded, or NOT INITIALIZED, stop here
+    if (Platform.OS === 'web' || !InterstitialAd || !isAdMobInitialized) {
+        if (!isAdMobInitialized) {
+            console.log('[AdManager] AdMob not yet initialized. Skipping loadAd.');
+        }
+        return;
+    }
 
     if (adLoaded) return; 
 
@@ -60,8 +80,8 @@ export const VideoAdManager = {
   // 2. Show Ad Logic
   showAd: async (currentVideo: any) => {
     // If on Web, skip ad logic completely
-    if (Platform.OS === 'web' || !InterstitialAd) {
-      console.log('[AdManager] Web detected, skipping ad.');
+    if (Platform.OS === 'web' || !InterstitialAd || !isAdMobInitialized) {
+      console.log('[AdManager] AdMob not ready, skipping ad.');
       return false;
     }
 
