@@ -34,7 +34,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 // 🔥 IMPORT StoryBar from the new location (Components/StoryBar.tsx)
-import StoryBar from '../../components/StoryBar';
+import StoryBar from '@/components/StoryBar';
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { useAuth } from '@/contexts/AuthContext';
