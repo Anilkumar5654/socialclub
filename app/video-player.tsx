@@ -1,4 +1,4 @@
-import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
+Import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -37,16 +37,14 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 import { useWatchTimeTracker } from '@/hooks/useWatchTimeTracker';
 import { getDeviceId } from '@/utils/deviceId';
 
-// 🔥 RELATIVE IMPORTS
 import { api, MEDIA_BASE_URL } from '../services/api';
-// बंडलर अब platforms के अनुसार services/VideoAdManager.ts/native.ts/web.ts को देखेगा
 import { VideoAdManager } from '../services/VideoAdManager'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // GLOBAL COUNTER FOR AD FREQUENCY
 let globalVideoViewCount = 0;
-const AD_FREQUENCY = 3; // Har 3rd video par Ad
+const AD_FREQUENCY = 1; // Har 1st video par Ad (Testing के लिए)
 
 // --- HELPER FUNCTIONS ---
 const getMediaUrl = (path: string | undefined) => {
@@ -93,7 +91,10 @@ interface VideoData {
   timestamp?: string;
   isLiked?: boolean;
   isSubscribed?: boolean;
-  monetization_enabled?: boolean | number | string;
+  
+  monetization_enabled?: boolean;
+  channel_monetization_enabled?: boolean;
+  
   user?: {
     id: string;
     name?: string;
@@ -161,7 +162,6 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
     return views.toString();
   };
 
-  // 🔥 SAFE CHANNEL NAME LOGIC
   const channelName = video.channel?.name || video.user?.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel?.avatar || video.user?.avatar || 'assets/c_profile.jpg');
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
@@ -285,7 +285,7 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
-  // 🔥 UPDATED AD LOGIC: Autoplay/Resume Logic added
+  // FINAL AD LOGIC
   useEffect(() => {
     const checkAndPlayAd = async () => {
         if (!video || !videoRef.current) return;
@@ -295,21 +295,22 @@ export default function VideoPlayerScreen() {
         globalVideoViewCount++;
         console.log(`[VideoPlayer] Count: ${globalVideoViewCount}`);
 
-        const isMonetized = video.monetization_enabled === 1 || 
-                            video.monetization_enabled === '1' || 
-                            video.monetization_enabled === true;
-
+        // CRITICAL: Monetization Check Logic Update
+        const isVideoMonetized = video.monetization_enabled === true; 
+        const isChannelMonetized = video.channel_monetization_enabled === true;
+        
+        // विज्ञापन तभी दिखाएँ जब काउंटर पूरा हो AND वीडियो और चैनल दोनों मोनिटाइज्ड हों।
+        const isMonetized = isVideoMonetized && isChannelMonetized;
         const shouldShowAd = (globalVideoViewCount >= AD_FREQUENCY) && isMonetized;
         
         // 2. Ad Show Logic
         if (shouldShowAd) {
             console.log('[VideoPlayer] Triggering Ad');
             
-            // 🛑 CRITICAL: Pause video before showing ad
+            // CRITICAL: Pause video before showing ad
             await videoRef.current.pauseAsync(); 
-            pauseTracking(); // Stop watch time tracker
+            pauseTracking();
             
-            // ShowAd will await until the ad is closed/skipped
             const adShown = await VideoAdManager.showAd(video); 
             
             if (adShown) {
@@ -317,15 +318,15 @@ export default function VideoPlayerScreen() {
             }
         }
 
-        // 3. Resume Playback (Always start/resume video after logic completes)
+        // 3. Resume Playback
         await videoRef.current.playAsync(); 
         setIsPlaying(true); 
-        resumeTracking(); // Restart watch time tracker
+        resumeTracking();
     };
 
     if (video) checkAndPlayAd();
     
-    // Cleanup function: Pause video when component unmounts
+    // Cleanup function
     return () => {
         if (videoRef.current) {
             videoRef.current.pauseAsync();
@@ -440,7 +441,6 @@ export default function VideoPlayerScreen() {
 
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
   
-  // 🔥 FIX: Safe Channel Name Variable (No more crashes!)
   let safeChannelName = 'Channel';
   if (channel?.name) safeChannelName = channel.name;
   else if (video?.channel?.name) safeChannelName = video.channel.name;
@@ -506,7 +506,6 @@ export default function VideoPlayerScreen() {
             <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
             <View style={styles.channelDetails}>
               <View style={styles.channelNameRow}>
-                {/* 🔥 FIX: Using Safe Channel Name */}
                 <Text style={styles.channelName}>{safeChannelName}</Text>
                 {isChannelVerified && <Text style={styles.verifiedBadge}> ✓</Text>}
               </View>
