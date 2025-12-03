@@ -37,15 +37,15 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 import { useWatchTimeTracker } from '@/hooks/useWatchTimeTracker';
 import { getDeviceId } from '@/utils/deviceId';
 
-// 🔥 FIX: Relative imports to avoid path aliases issues
+// 🔥 RELATIVE IMPORTS (Best for preventing errors)
 import { api, MEDIA_BASE_URL } from '../services/api';
 import { VideoAdManager } from '../services/VideoAdManager';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// GLOBAL COUNTER (Persists across navigation)
+// GLOBAL COUNTER
 let globalVideoViewCount = 0;
-const AD_FREQUENCY = 3; // Show ad every 3rd video
+const AD_FREQUENCY = 3; // Har 3rd video par Ad
 
 // --- HELPER FUNCTIONS ---
 const getMediaUrl = (path: string | undefined) => {
@@ -92,7 +92,7 @@ interface VideoData {
   timestamp?: string;
   isLiked?: boolean;
   isSubscribed?: boolean;
-  monetization_enabled?: boolean | number | string; // For Ad Logic
+  monetization_enabled?: boolean | number | string;
   user?: {
     id: string;
     name?: string;
@@ -160,6 +160,7 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
     return views.toString();
   };
 
+  // 🔥 SAFE CHANNEL NAME LOGIC
   const channelName = video.channel?.name || video.user?.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel?.avatar || video.user?.avatar || 'assets/c_profile.jpg');
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
@@ -209,9 +210,7 @@ export default function VideoPlayerScreen() {
   const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
 
-  // Default isPlaying to FALSE so we can perform ad checks first
   const [isPlaying, setIsPlaying] = useState(false);
-  
   const [showControls, setShowControls] = useState(false);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -227,7 +226,6 @@ export default function VideoPlayerScreen() {
   const [currentPosition, setCurrentPosition] = useState(0);
   const hasTrackedView = useRef(false);
 
-  // Watch Time Tracker
   const { stopTracking, pauseTracking, resumeTracking } = useWatchTimeTracker({
     videoId: videoId || '',
     videoType: 'video',
@@ -235,7 +233,6 @@ export default function VideoPlayerScreen() {
     enabled: !!videoId && videoDuration > 0,
   });
 
-  // Queries
   const { data: videoData, isLoading: isLoadingVideo } = useQuery({
     queryKey: ['video-details', videoId],
     queryFn: async () => api.videos.getDetails(videoId || ''),
@@ -279,7 +276,6 @@ export default function VideoPlayerScreen() {
   const comments = commentsData?.comments || [];
   const recommendedVideos = recommendedData?.videos || [];
 
-  // Initialize States
   useEffect(() => {
     if (video) {
       setLikes(video.likes || 0);
@@ -288,20 +284,15 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
-  // AD INTEGRATION LOGIC
+  // 🔥 AD LOGIC
   useEffect(() => {
     const checkAndPlayAd = async () => {
         if (!video) return;
-
-        // 1. Preload Next Ad (Best Practice)
+        
         VideoAdManager.loadAd();
-
-        // 2. Increment Global Counter (User watched another video)
         globalVideoViewCount++;
-        console.log(`[VideoPlayer] Global Count: ${globalVideoViewCount}`);
+        console.log(`[VideoPlayer] Count: ${globalVideoViewCount}`);
 
-        // 3. Check Conditions
-        // Backend might send boolean, number, or string '1'/'0'
         const isMonetized = video.monetization_enabled === 1 || 
                             video.monetization_enabled === '1' || 
                             video.monetization_enabled === true;
@@ -309,32 +300,15 @@ export default function VideoPlayerScreen() {
         const shouldShowAd = (globalVideoViewCount >= AD_FREQUENCY) && isMonetized;
 
         if (shouldShowAd) {
-            console.log('[VideoPlayer] Triggering Ad...');
-            
-            // Try to show ad
+            console.log('[VideoPlayer] Triggering Ad');
             const adShown = await VideoAdManager.showAd(video);
-            
-            if (adShown) {
-                console.log('[VideoPlayer] Ad Shown Successfully');
-                // Reset counter ONLY if ad was actually shown
-                globalVideoViewCount = 0;
-            } else {
-                console.log('[VideoPlayer] Ad failed to load, skipping...');
-            }
-        } else {
-            console.log('[VideoPlayer] Skipping Ad (Count not met or Not Monetized)');
+            if (adShown) globalVideoViewCount = 0;
         }
-
-        // 4. Finally, Play Content
         setIsPlaying(true); 
     };
 
-    // Run this logic only when video data is loaded
-    if (video) {
-        checkAndPlayAd();
-    }
+    if (video) checkAndPlayAd();
   }, [video, videoId]); 
-
 
   // View Tracking
   useEffect(() => {
@@ -344,39 +318,25 @@ export default function VideoPlayerScreen() {
           const deviceId = await getDeviceId();
           await api.videos.view(videoId, deviceId);
           hasTrackedView.current = true;
-        } catch (err) {
-           console.log('View track fail');
-        }
+        } catch (err) {}
       };
       trackView();
     }
   }, [video, videoId]);
 
-  useEffect(() => {
-    return () => stopTracking();
-  }, [stopTracking]);
+  useEffect(() => { return () => stopTracking(); }, [stopTracking]);
 
-  // Controls Auto Hide Logic
   useEffect(() => {
     if (showControls) {
       if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
-      controlsTimeout.current = setTimeout(() => {
-        if (isPlaying) setShowControls(false);
-      }, 3000); // Hide after 3 seconds
+      controlsTimeout.current = setTimeout(() => { if (isPlaying) setShowControls(false); }, 3000);
     }
-    return () => {
-      if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
-    };
+    return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
   }, [showControls, isPlaying]);
 
-  // Mutations
   const likeMutation = useMutation({
     mutationFn: () => (isLiked ? api.videos.unlike(videoId || '') : api.videos.like(videoId || '')),
-    onSuccess: (data) => {
-      setIsLiked(data.isLiked);
-      setLikes(data.likes);
-      queryClient.invalidateQueries({ queryKey: ['video-details', videoId] });
-    },
+    onSuccess: (data) => { setIsLiked(data.isLiked); setLikes(data.likes); queryClient.invalidateQueries({ queryKey: ['video-details', videoId] }); },
   });
 
   const subscribeMutation = useMutation({
@@ -385,55 +345,29 @@ export default function VideoPlayerScreen() {
       if (!channelId) throw new Error('No channel');
       return isSubscribed ? api.channels.unsubscribe(channelId) : api.channels.subscribe(channelId);
     },
-    onSuccess: (data) => {
-      setIsSubscribed(data.isSubscribed);
-      queryClient.invalidateQueries({ queryKey: ['channel-details'] });
-    },
+    onSuccess: (data) => { setIsSubscribed(data.isSubscribed); queryClient.invalidateQueries({ queryKey: ['channel-details'] }); },
   });
 
   const commentMutation = useMutation({
     mutationFn: (content: string) => api.videos.comment(videoId || '', content),
-    onSuccess: () => {
-      setCommentText('');
-      refetchComments();
-      queryClient.invalidateQueries({ queryKey: ['video-comments', videoId] });
-    },
+    onSuccess: () => { setCommentText(''); refetchComments(); queryClient.invalidateQueries({ queryKey: ['video-comments', videoId] }); },
   });
 
-  // Handlers
   const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (status.isLoaded) {
-      // setIsPlaying(status.isPlaying); // Disabled to prevent state conflict with ad logic
       if (status.durationMillis) setVideoDuration(status.durationMillis);
       if (status.positionMillis) setCurrentPosition(status.positionMillis);
-      
-      if (status.didJustFinish) {
-        setIsPlaying(false);
-        setShowControls(true);
-        stopTracking();
-      }
+      if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); stopTracking(); }
     }
   }, [stopTracking]);
 
   const togglePlayPause = async () => {
     if (!videoRef.current) return;
-    if (isPlaying) {
-      await videoRef.current.pauseAsync();
-      setIsPlaying(false);
-      pauseTracking();
-      setShowControls(true);
-    } else {
-      await videoRef.current.playAsync();
-      setIsPlaying(true);
-      resumeTracking();
-    }
+    if (isPlaying) { await videoRef.current.pauseAsync(); setIsPlaying(false); pauseTracking(); setShowControls(true); }
+    else { await videoRef.current.playAsync(); setIsPlaying(true); resumeTracking(); }
   };
 
-  const handleScreenTap = () => {
-    setShowControls(prev => !prev);
-  };
-
-  // Standard Action Handlers
+  const handleScreenTap = () => setShowControls(prev => !prev);
   const handleLike = () => { if (isDisliked) setIsDisliked(false); likeMutation.mutate(); };
   const handleDislike = () => { if (isLiked) { setIsLiked(false); setLikes(l => l - 1); } setIsDisliked(!isDisliked); };
   const handleSubscribe = () => subscribeMutation.mutate();
@@ -452,10 +386,7 @@ export default function VideoPlayerScreen() {
   const handleChannelPress = () => {
     const targetChannelId = channel?.id || video?.user?.channel_id;
     if (targetChannelId) {
-      router.push({ 
-        pathname: '/channel/[channelId]', 
-        params: { channelId: targetChannelId }
-      });
+      router.push({ pathname: '/channel/[channelId]', params: { channelId: targetChannelId } });
     } else {
       Alert.alert('Error', 'Channel details not available.');
     }
@@ -464,14 +395,8 @@ export default function VideoPlayerScreen() {
   const handleRecommendedPress = (recVideoId: string) => {
     hasTrackedView.current = false;
     stopTracking();
-    
-    // Reset playing state
     setIsPlaying(false); 
-    
-    router.push({
-        pathname: '/video-player',
-        params: { videoId: recVideoId }
-    });
+    router.push({ pathname: '/video-player', params: { videoId: recVideoId } });
   };
 
   const formatViewsDisplay = (views: number) => {
@@ -490,7 +415,14 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
-  const videoTitle = video.title || video.caption || 'Untitled Video';
+  
+  // 🔥 FIX: Safe Channel Name Variable (No more crashes!)
+  let safeChannelName = 'Channel';
+  if (channel?.name) safeChannelName = channel.name;
+  else if (video?.channel?.name) safeChannelName = video.channel.name;
+  else if (video?.user?.channel_name) safeChannelName = video.user.channel_name;
+
+  const channelAvatar = getMediaUrl(channel?.avatar || video.channel?.avatar || 'assets/c_profile.jpg');
   const subscriberCount = channel?.subscribers_count ?? video.channel?.subscribers_count ?? 0;
   const isChannelVerified = channel?.is_verified || video.channel?.is_verified || false;
 
@@ -499,7 +431,6 @@ export default function VideoPlayerScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" />
 
-      {/* --- CUSTOM VIDEO PLAYER --- */}
       <View style={styles.playerContainer}>
         <ExpoVideo
           ref={videoRef}
@@ -507,27 +438,18 @@ export default function VideoPlayerScreen() {
           style={styles.player}
           resizeMode={ResizeMode.CONTAIN}
           useNativeControls={false}
-          shouldPlay={isPlaying} // Controlled by Ad Logic
+          shouldPlay={isPlaying}
           isLooping={false}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
         />
-
-        {/* Custom Controls Overlay */}
         <Pressable style={styles.overlayContainer} onPress={handleScreenTap}>
           {showControls && (
             <View style={styles.controlsLayer}>
               <TouchableOpacity style={styles.centerButton} onPress={togglePlayPause}>
-                {isPlaying ? (
-                  <Pause color="white" size={48} fill="white" />
-                ) : (
-                  <Play color="white" size={48} fill="white" />
-                )}
+                {isPlaying ? <Pause color="white" size={48} fill="white" /> : <Play color="white" size={48} fill="white" />}
               </TouchableOpacity>
-
               <View style={styles.bottomControlBar}>
-                <Text style={styles.timeText}>
-                  {formatDuration(currentPosition)} / {formatDuration(videoDuration)}
-                </Text>
+                <Text style={styles.timeText}>{formatDuration(currentPosition)} / {formatDuration(videoDuration)}</Text>
                 <View style={styles.progressBarContainer}>
                    <View style={[styles.progressBarFill, { width: `${(currentPosition / (videoDuration || 1)) * 100}%` }]} />
                 </View>
@@ -538,84 +460,48 @@ export default function VideoPlayerScreen() {
         </Pressable>
       </View>
 
-      {/* SCROLLABLE CONTENT */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
-        
         <View style={styles.videoDetails}>
-          <Text style={styles.videoTitle}>{videoTitle}</Text>
-          <Text style={styles.videoStats}>
-            {formatViewsDisplay(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}
-          </Text>
-
-          {/* Action Buttons */}
+          <Text style={styles.videoTitle}>{video.title || video.caption || 'Untitled Video'}</Text>
+          <Text style={styles.videoStats}>{formatViewsDisplay(video.views || 0)} views · {formatTimeAgo(video.created_at || video.timestamp)}</Text>
+          
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsContainer}>
             <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-              <ThumbsUp
-                color={isLiked ? Colors.primary : Colors.text}
-                fill={isLiked ? Colors.primary : 'transparent'}
-                size={22}
-              />
-              <Text style={[styles.actionText, isLiked && styles.actionTextActive]}>
-                {formatViewsDisplay(likes)}
-              </Text>
+              <ThumbsUp color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : 'transparent'} size={22} />
+              <Text style={[styles.actionText, isLiked && styles.actionTextActive]}>{formatViewsDisplay(likes)}</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleDislike}>
-              <ThumbsDown color={isDisliked ? Colors.primary : Colors.text} size={22} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={() => setShowCommentsModal(true)}>
-              <MessageCircle color={Colors.text} size={22} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleWhatsAppShare}>
-              <Send color={Colors.text} size={22} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleShare}>
-              <Share2 color={Colors.text} size={22} />
-            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleDislike}><ThumbsDown color={isDisliked ? Colors.primary : Colors.text} size={22} /></TouchableOpacity>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={() => setShowCommentsModal(true)}><MessageCircle color={Colors.text} size={22} /></TouchableOpacity>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleWhatsAppShare}><Send color={Colors.text} size={22} /></TouchableOpacity>
+            <TouchableOpacity style={styles.actionButtonIconOnly} onPress={handleShare}><Share2 color={Colors.text} size={22} /></TouchableOpacity>
           </ScrollView>
         </View>
 
         <TouchableOpacity style={styles.channelContainer} onPress={handleChannelPress} activeOpacity={0.8}>
           <View style={styles.channelInfo}>
-            <Image source={{ uri: getMediaUrl(channel?.avatar || video.channel?.avatar || 'assets/c_profile.jpg') }} style={styles.channelAvatar} />
+            <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
             <View style={styles.channelDetails}>
               <View style={styles.channelNameRow}>
-                <Text style={styles.channelName}>{channelName}</Text>
+                {/* 🔥 FIX: Using Safe Channel Name */}
+                <Text style={styles.channelName}>{safeChannelName}</Text>
                 {isChannelVerified && <Text style={styles.verifiedBadge}> ✓</Text>}
               </View>
-              <Text style={styles.subscriberCount}>
-                {subscriberCount > 1000 ? `${(subscriberCount / 1000).toFixed(1)}K` : subscriberCount} subscribers
-              </Text>
+              <Text style={styles.subscriberCount}>{subscriberCount > 1000 ? `${(subscriberCount / 1000).toFixed(1)}K` : subscriberCount} subscribers</Text>
             </View>
           </View>
           {(channel?.id || video.user?.channel_id) && (
-            <TouchableOpacity
-              style={[styles.subscribeButton, isSubscribed && styles.subscribedButton]}
-              onPress={handleSubscribe}
-              disabled={subscribeMutation.isPending}
-            >
-              <Text style={[styles.subscribeText, isSubscribed && styles.subscribedText]}>
-                {subscribeMutation.isPending ? '...' : isSubscribed ? 'Subscribed' : 'Subscribe'}
-              </Text>
+            <TouchableOpacity style={[styles.subscribeButton, isSubscribed && styles.subscribedButton]} onPress={handleSubscribe} disabled={subscribeMutation.isPending}>
+              <Text style={[styles.subscribeText, isSubscribed && styles.subscribedText]}>{subscribeMutation.isPending ? '...' : isSubscribed ? 'Subscribed' : 'Subscribe'}</Text>
             </TouchableOpacity>
           )}
         </TouchableOpacity>
 
         <View style={styles.descriptionContainer}>
-          <Text style={styles.descriptionText} numberOfLines={showFullDescription ? undefined : 3}>
-            {video.description || video.caption || 'No description available'}
-          </Text>
+          <Text style={styles.descriptionText} numberOfLines={showFullDescription ? undefined : 3}>{video.description || video.caption || 'No description'}</Text>
           <TouchableOpacity onPress={() => setShowFullDescription(!showFullDescription)}>
             <View style={styles.showMoreButton}>
               <Text style={styles.showMoreText}>{showFullDescription ? 'Show less' : 'Show more'}</Text>
-              <ChevronDown
-                color={Colors.textSecondary}
-                size={16}
-                style={showFullDescription ? { transform: [{ rotate: '180deg' }] } : undefined}
-              />
+              <ChevronDown color={Colors.textSecondary} size={16} style={showFullDescription ? { transform: [{ rotate: '180deg' }] } : undefined} />
             </View>
           </TouchableOpacity>
         </View>
@@ -633,57 +519,30 @@ export default function VideoPlayerScreen() {
         <View style={styles.recommendedSection}>
           <Text style={styles.recommendedSectionTitle}>Recommended</Text>
           {recommendedVideos.map((rec: VideoData) => (
-            <RecommendedVideoCard 
-              key={rec.id} 
-              video={rec} 
-              onPress={() => handleRecommendedPress(rec.id)} 
-            />
+            <RecommendedVideoCard key={rec.id} video={rec} onPress={() => handleRecommendedPress(rec.id)} />
           ))}
         </View>
       </ScrollView>
 
-      {/* COMMENTS MODAL */}
-      <Modal
-        visible={showCommentsModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowCommentsModal(false)}
-      >
+      <Modal visible={showCommentsModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCommentsModal(false)}>
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Comments · {comments.length}</Text>
-            <TouchableOpacity onPress={() => setShowCommentsModal(false)}>
-              <Text style={styles.modalCloseButton}>Done</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowCommentsModal(false)}><Text style={styles.modalCloseButton}>Done</Text></TouchableOpacity>
           </View>
           <View style={styles.addCommentContainer}>
-            <TextInput
-              style={styles.commentInput}
-              placeholder="Add a comment..."
-              placeholderTextColor={Colors.textMuted}
-              value={commentText}
-              onChangeText={setCommentText}
-              multiline
-            />
+            <TextInput style={styles.commentInput} placeholder="Add a comment..." placeholderTextColor={Colors.textMuted} value={commentText} onChangeText={setCommentText} multiline />
             {commentText.trim().length > 0 && (
-              <TouchableOpacity style={styles.commentPostButton} onPress={handleAddComment}>
-                <Text style={styles.commentPostButtonText}>Post</Text>
-              </TouchableOpacity>
+              <TouchableOpacity style={styles.commentPostButton} onPress={handleAddComment}><Text style={styles.commentPostButtonText}>Post</Text></TouchableOpacity>
             )}
           </View>
-          <FlatList
-            data={comments}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <CommentItem comment={item} />}
-            contentContainerStyle={styles.commentsList}
-          />
+          <FlatList data={comments} keyExtractor={(item) => item.id} renderItem={({ item }) => <CommentItem comment={item} />} contentContainerStyle={styles.commentsList} />
         </View>
       </Modal>
     </View>
   );
 }
 
-// --- STYLES ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   centerContent: { justifyContent: 'center', alignItems: 'center' },
@@ -691,35 +550,23 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 16, color: Colors.error, marginBottom: 16 },
   retryButton: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
   retryButtonText: { color: Colors.text, fontSize: 15, fontWeight: '600' },
-  
-  // Custom Player Styles
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16 / 9, backgroundColor: '#000', position: 'relative' },
   player: { width: '100%', height: '100%' },
   overlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
   controlsLayer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   centerButton: { padding: 20 },
-  bottomControlBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', padding: 10,
-    backgroundColor: 'transparent'
-  },
+  bottomControlBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'transparent' },
   timeText: { color: 'white', fontSize: 12, marginRight: 10, fontWeight: '600' },
   progressBarContainer: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', marginRight: 10, borderRadius: 2 },
   progressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
-
-  // Video Details
   videoDetails: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   videoTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, lineHeight: 24, marginBottom: 8 },
   videoStats: { fontSize: 14, color: Colors.textSecondary, marginBottom: 16 },
-  
-  // Actions
   actionsContainer: { flexDirection: 'row', gap: 12, paddingRight: 16 },
   actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: Colors.surface },
   actionButtonIconOnly: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
   actionText: { fontSize: 14, fontWeight: '600', color: Colors.text },
   actionTextActive: { color: Colors.primary },
-
-  // Channel
   channelContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   channelInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   channelAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
@@ -732,8 +579,6 @@ const styles = StyleSheet.create({
   subscribedButton: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   subscribeText: { fontSize: 14, fontWeight: '700', color: Colors.text },
   subscribedText: { color: Colors.textSecondary },
-
-  // Description & Comments
   descriptionContainer: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   descriptionText: { fontSize: 14, color: Colors.text, lineHeight: 20, marginBottom: 8 },
   showMoreButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -743,8 +588,6 @@ const styles = StyleSheet.create({
   commentPreviewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   commentPreviewAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.surface },
   commentPreviewText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 18 },
-
-  // Recommended Section
   recommendedSection: { paddingBottom: 20 },
   recommendedSectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginHorizontal: 16, marginVertical: 16 },
   recommendedCard: { marginBottom: 20, backgroundColor: Colors.background },
@@ -757,8 +600,6 @@ const styles = StyleSheet.create({
   recommendedTextCol: { flex: 1, justifyContent: 'center', gap: 4 },
   recommendedTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, lineHeight: 20 },
   recommendedMeta: { fontSize: 12, color: Colors.textSecondary, lineHeight: 16 },
-
-  // Modal
   modalContainer: { flex: 1, backgroundColor: Colors.background },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
