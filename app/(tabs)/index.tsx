@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+Import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import {
   Heart,
@@ -713,7 +713,8 @@ export default function HomeScreen() {
     isRefetching: isRefetchingForYou,
   } = useQuery({
     queryKey: ['feed-for-you'],
-    queryFn: () => api.home.getFeed(1, 10),
+    // 🔥 UPDATED: 'for-you' type भेजा जा रहा है
+    queryFn: () => api.home.getFeed(1, 10, 'for-you'),
     enabled: isAuthenticated && activeTab === 'for-you',
   });
 
@@ -725,7 +726,8 @@ export default function HomeScreen() {
     isRefetching: isRefetchingFollowing,
   } = useQuery({
     queryKey: ['feed-following'],
-    queryFn: () => api.home.getFeed(1, 10),
+    // 🔥 UPDATED: 'following' type भेजा जा रहा है
+    queryFn: () => api.home.getFeed(1, 10, 'following'),
     enabled: isAuthenticated && activeTab === 'following',
   });
 
