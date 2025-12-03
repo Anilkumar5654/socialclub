@@ -1,4 +1,4 @@
-Import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -614,7 +614,7 @@ const styles = StyleSheet.create({
   recommendedSection: { paddingBottom: 20 },
   recommendedSectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginHorizontal: 16, marginVertical: 16 },
   recommendedCard: { marginBottom: 20, backgroundColor: Colors.background },
-  recommendedThumbnailContainer: { width: SCREEN_WIDTH, height: SCREEN_WIDTH * 0.5625, backgroundColor: Colors.surface, position: 'relative' },
+  recommendedThumbnailContainer: { width: SCREEN_WIDTH, aspectRatio: 16 / 9, backgroundColor: Colors.surface, position: 'relative' },
   recommendedThumbnail: { width: '100%', height: '100%' },
   recommendedDuration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0, 0, 0, 0.85)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
   recommendedDurationText: { color: Colors.text, fontSize: 12, fontWeight: '600' },
