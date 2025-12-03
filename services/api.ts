@@ -1,4 +1,4 @@
-// services/api.ts (Corrected Final Code)
+// services/api.ts (Updated with deleteComment)
 
 import { ApiLogger } from '@/app/api-debug';
 import { getDeviceId } from '@/utils/deviceId';
@@ -176,7 +176,6 @@ class ApiClient {
   };
 
   home = {
-    // 🔥 UPDATED: Added feedType parameter and endpoint
     getFeed: async (page: number = 1, limit: number = 10, feedType: 'for-you' | 'following' = 'for-you') => {
       const endpoint = `/home/feed?page=${page}&limit=${limit}&type=${feedType}`;
       return this.request<{ posts: any[]; hasMore: boolean }>(endpoint);
@@ -204,6 +203,8 @@ class ApiClient {
     getPost: async (id: string) => this.request<{ post: any }>(`/posts/details?id=${id}`),
     create: async (formData: FormData) => this.request('/posts/create', { method: 'POST', body: formData }),
     delete: async (id: string) => this.request(`/posts/delete?id=${id}`, { method: 'DELETE' }),
+    
+    // Actions
     like: async (id: string) => {
       return this.request<{ isLiked: boolean; likes: number }>('/posts/action/like', {
         method: 'POST', body: JSON.stringify({ post_id: id }),
@@ -222,8 +223,20 @@ class ApiClient {
     getComments: async (id: string, page: number = 1) => {
       return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/comments?post_id=${id}&page=${page}`);
     },
+    // 🔥 NEW: Delete Comment Action
+    deleteComment: async (commentId: string) => {
+      return this.request(`/posts/action/comment?comment_id=${commentId}`, { method: 'DELETE' });
+    },
     share: async (id: string) => {
       return this.request(`/posts/action/share`, { method: 'POST', body: JSON.stringify({ post_id: id }) });
+    },
+    
+    // 🔥 NEW: Report Post Action (From previous step)
+    report: async (postId: string, reason: string, description?: string) => {
+      return this.request('/posts/action/report', { 
+        method: 'POST', 
+        body: JSON.stringify({ post_id: postId, reason, description }) 
+      });
     },
   };
 
@@ -286,11 +299,9 @@ class ApiClient {
     },
     getRecommended: async (videoId: string) => this.request<{ videos: any[] }>(`/videos/recommended?video_id=${videoId}`),
     
-    // 🔥 ADDED: trackWatch function to resolve the issue 
     trackWatch: async (videoId: string, watchDuration: number, completionRate: number) => {
       let deviceId = 'unknown';
       try {
-        // Device ID fetching logic copied from reels.trackView
         const idPromise = getDeviceId();
         const timeoutPromise = new Promise<string>(resolve => setTimeout(() => resolve('timeout_fallback'), 1500));
         const id = await Promise.race([idPromise, timeoutPromise]);
@@ -303,7 +314,7 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify({
           video_id: videoId,
-          video_type: 'video', // Explicitly setting type
+          video_type: 'video',
           watch_duration: watchDuration,
           completion_rate: completionRate,
           device_id: deviceId
@@ -335,10 +346,8 @@ class ApiClient {
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
   };
 
-  // 🔥 ADS MODULE (Using singular path now)
   ads = {
     trackImpression: async (data: { video_id: string; creator_id: string; ad_network: string; revenue: number }) => {
-      // Corrected to match server filename: track-impression.php
       return this.request('/ads/track-impression', { 
         method: 'POST',
         body: JSON.stringify(data),
@@ -389,7 +398,6 @@ class ApiClient {
     }),
   };
   
-  // --- CREATOR MODULE ---
   creator = {
     getStats: async () => this.request<{ stats: any }>('/creator/stats'),
     getEarnings: async (period: 'week' | 'month' | 'year' = 'month') => this.request<{ earnings: any }>(`/creator/earnings?period=${period}`),
@@ -400,8 +408,6 @@ class ApiClient {
       return this.request<{ analytics: any }>(`/creator/video-details-analytics?video_id=${videoId}`);
     },
   };
-  // --- END CREATOR MODULE ---
-
 
   search = {
       all: async (query: string, page: number = 1) => this.request(`/search?q=${encodeURIComponent(query)}&page=${page}`),
@@ -413,3 +419,4 @@ class ApiClient {
 
 export const api = new ApiClient(API_BASE_URL, MEDIA_BASE_URL);
 export { API_BASE_URL, MEDIA_BASE_URL };
+          
