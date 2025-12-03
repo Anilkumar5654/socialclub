@@ -11,7 +11,10 @@ import {
   MessageSquare,
   Send,
   X,
+  Flag,
+  Trash2, // Added for delete icon
   ShieldAlert,
+  ChevronRight,
 } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
@@ -44,7 +47,7 @@ import { Post } from '@/types';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// ReportModal Component
+// ReportModal Component (Consistent UI)
 // ----------------------------------------------------------------
 
 function ReportModal({
@@ -87,7 +90,7 @@ function ReportModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.reportModalContainer}>
+        <View style={styles.modalContentContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Report Post</Text>
             <TouchableOpacity onPress={onClose}>
@@ -95,22 +98,22 @@ function ReportModal({
             </TouchableOpacity>
           </View>
           
-          <Text style={styles.reportSubtitle}>Why are you reporting this post?</Text>
+          <Text style={styles.modalSubtitle}>Please select a reason for reporting:</Text>
 
           {reportMutation.isPending ? (
             <View style={styles.modalLoadingContainer}>
               <ActivityIndicator color={Colors.primary} size="large" />
             </View>
           ) : (
-            <ScrollView>
+            <ScrollView style={{ maxHeight: 400 }}>
               {reportReasons.map((reason, index) => (
                 <TouchableOpacity 
                   key={index} 
-                  style={styles.reportOption}
+                  style={styles.modalOptionItem}
                   onPress={() => handleReport(reason)}
                 >
-                  <Text style={styles.reportOptionText}>{reason}</Text>
-                  <ShieldAlert size={18} color={Colors.textSecondary} />
+                  <Text style={styles.modalOptionText}>{reason}</Text>
+                  <ChevronRight size={20} color={Colors.textMuted} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -122,7 +125,7 @@ function ReportModal({
 }
 
 // ----------------------------------------------------------------
-// CommentsModal Component (Updated with DELETE Logic)
+// CommentsModal Component (With Delete Button)
 // ----------------------------------------------------------------
 
 function CommentsModal({
@@ -163,7 +166,7 @@ function CommentsModal({
     mutationFn: (commentId: string) => api.posts.deleteComment(commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
-      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] }); // Refresh counts
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
       queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
     onError: (error: any) => {
@@ -176,29 +179,26 @@ function CommentsModal({
     commentMutation.mutate(comment);
   };
 
-  const handleLongPressComment = (commentItem: any) => {
-    // Only allow deletion if the current user owns the comment
-    if (currentUser?.id === commentItem.user_id || currentUser?.id === commentItem.user?.id) {
-      Alert.alert(
-        'Delete Comment',
-        'Are you sure you want to delete this comment?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Delete', 
-            style: 'destructive', 
-            onPress: () => deleteCommentMutation.mutate(commentItem.id) 
-          }
-        ]
-      );
-    }
+  const handleDelete = (commentId: string) => {
+    Alert.alert(
+      'Delete Comment',
+      'Are you sure you want to delete this comment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive', 
+          onPress: () => deleteCommentMutation.mutate(commentId) 
+        }
+      ]
+    );
   };
 
   const comments = commentsData?.comments || [];
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalContainer}>
+      <View style={styles.fullScreenModalContainer}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>Comments</Text>
           <TouchableOpacity onPress={onClose}>
@@ -214,35 +214,49 @@ function CommentsModal({
           <FlatList
             data={comments}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.commentItem}
-                onPress={() => {
-                  onClose();
-                  router.push({ pathname: '/user/[userId]', params: { userId: item.user.id } });
-                }}
-                onLongPress={() => handleLongPressComment(item)}
-                delayLongPress={500}
-              >
-                <Image
-                  source={{
-                    uri: item.user?.avatar
-                      ? item.user.avatar.startsWith('http')
-                        ? item.user.avatar
-                        : `${MEDIA_BASE_URL}/${item.user.avatar}`
-                      : '',
-                  }}
-                  style={styles.commentAvatar}
-                />
-                <View style={styles.commentContent}>
-                  <Text style={styles.commentUsername}>{item.user?.username || 'Unknown'}</Text>
-                  <Text style={styles.commentText}>{item.content}</Text>
-                  <Text style={styles.commentTime}>
-                    {formatTimeAgo(item.created_at || item.timestamp)}
-                  </Text>
+            renderItem={({ item }) => {
+              const isOwner = currentUser?.id === item.user_id || currentUser?.id === item.user?.id;
+              
+              return (
+                <View style={styles.commentItem}>
+                  <TouchableOpacity onPress={() => {
+                    onClose();
+                    router.push({ pathname: '/user/[userId]', params: { userId: item.user.id } });
+                  }}>
+                    <Image
+                      source={{
+                        uri: item.user?.avatar
+                          ? item.user.avatar.startsWith('http')
+                            ? item.user.avatar
+                            : `${MEDIA_BASE_URL}/${item.user.avatar}`
+                          : '',
+                      }}
+                      style={styles.commentAvatar}
+                    />
+                  </TouchableOpacity>
+                  
+                  <View style={styles.commentContent}>
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentUsername}>{item.user?.username || 'Unknown'}</Text>
+                      <Text style={styles.commentTime}>
+                        {formatTimeAgo(item.created_at || item.timestamp)}
+                      </Text>
+                    </View>
+                    <Text style={styles.commentText}>{item.content}</Text>
+                  </View>
+
+                  {/* DELETE BUTTON (Trash Icon) for Owner */}
+                  {isOwner && (
+                    <TouchableOpacity 
+                      style={styles.commentDeleteButton} 
+                      onPress={() => handleDelete(item.id)}
+                    >
+                      <Trash2 size={16} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
                 </View>
-              </TouchableOpacity>
-            )}
+              );
+            }}
             contentContainerStyle={styles.commentsList}
             ListEmptyComponent={
               <View style={styles.emptyComments}>
@@ -324,12 +338,13 @@ function PostItem({ post }: { post: Post }) {
     onSuccess: (data) => setIsFollowing(data.isFollowing),
   });
 
+  // DELETE POST MUTATION
   const deleteMutation = useMutation({
     mutationFn: (postId: string) => api.posts.delete(postId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
       queryClient.invalidateQueries({ queryKey: ['feed-following'] });
-      Alert.alert('Deleted', 'Post has been removed.');
+      Alert.alert('Success', 'Post deleted successfully.');
     },
     onError: (error: any) => Alert.alert('Error', error.message || 'Failed to delete'),
   });
@@ -353,36 +368,51 @@ function PostItem({ post }: { post: Post }) {
     }
   };
 
+  // POST ACTION MENU LOGIC
   const showPostActions = () => {
     const isOwnPost = currentUser?.id === post.user.id;
-    const options = isOwnPost ? ['Delete', 'Cancel'] : ['Report', 'Cancel'];
-    const destructiveIndex = isOwnPost ? 0 : -1;
+    
+    // Define Options
+    const options = isOwnPost 
+      ? ['Delete Post', 'Cancel'] 
+      : ['Report Post', 'Cancel'];
+      
+    const destructiveIndex = 0; // The first option is always the "Danger" one (Delete or Report)
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         { options, destructiveButtonIndex: destructiveIndex, cancelButtonIndex: options.length - 1 },
         (buttonIndex) => {
           if (isOwnPost && buttonIndex === 0) {
-            Alert.alert('Delete Post', 'Are you sure?', [
+            // Confirm Delete
+            Alert.alert('Delete Post', 'Are you sure you want to delete this post?', [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(post.id) }
             ]);
           } else if (!isOwnPost && buttonIndex === 0) {
+            // Open Report Modal
             setReportModalVisible(true);
           }
         }
       );
     } else {
+      // Android Alert Menu
       Alert.alert(
-        'Options',
+        'Post Options',
         '',
         isOwnPost
           ? [
-              { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(post.id) },
+              { text: 'Delete Post', style: 'destructive', onPress: () => {
+                  Alert.alert('Delete Post', 'Are you sure?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate(post.id) }
+                  ]);
+                } 
+              },
               { text: 'Cancel', style: 'cancel' }
             ]
           : [
-              { text: 'Report', onPress: () => setReportModalVisible(true) },
+              { text: 'Report Post', onPress: () => setReportModalVisible(true) },
               { text: 'Cancel', style: 'cancel' }
             ]
       );
@@ -420,11 +450,13 @@ function PostItem({ post }: { post: Post }) {
           )}
         </TouchableOpacity>
 
+        {/* POST ACTION MENU BUTTON */}
         <TouchableOpacity onPress={showPostActions} style={styles.moreButton}>
           <MoreHorizontal color={Colors.text} size={24} />
         </TouchableOpacity>
       </View>
 
+      {/* Content */}
       {post.type === 'text' && post.content && <Text style={styles.postTextContent}>{post.content}</Text>}
       
       {post.images && post.images.length > 0 && (
@@ -435,6 +467,7 @@ function PostItem({ post }: { post: Post }) {
         </ScrollView>
       )}
 
+      {/* Actions Bar */}
       <View style={styles.postActions}>
         <View style={styles.postActionsLeft}>
           <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
@@ -452,6 +485,7 @@ function PostItem({ post }: { post: Post }) {
         </TouchableOpacity>
       </View>
 
+      {/* Stats & Caption */}
       <View style={styles.postStats}>
         <Text style={styles.likesText}>{likes.toLocaleString()} likes</Text>
         {(post.type === 'photo' || post.type === 'text') && post.content && (
@@ -559,7 +593,7 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No viral posts found for you.</Text>
+              <Text style={styles.emptyText}>No posts found.</Text>
             </View>
           }
         />
@@ -650,7 +684,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   postAvatar: {
-    width: 44, 
+    width: 44, // Increased size
     height: 44,
     borderRadius: 22,
   },
@@ -760,29 +794,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  errorText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-  },
   emptyContainer: {
     padding: 48,
     alignItems: 'center',
@@ -814,9 +825,23 @@ const styles = StyleSheet.create({
   followingButtonSmallText: {
     color: Colors.textSecondary,
   },
-  modalContainer: {
+  
+  // MODAL STYLES (Consolidated)
+  fullScreenModalContainer: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContentContainer: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    maxHeight: '80%',
+    paddingBottom: 20,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -831,18 +856,41 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.text,
   },
+  modalSubtitle: {
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '600',
+    padding: 16,
+  },
+  modalOptionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalOptionText: {
+    fontSize: 16,
+    color: Colors.text,
+  },
   modalLoadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    minHeight: 150,
   },
+  
+  // COMMENTS SPECIFIC
   commentsList: {
     padding: 16,
   },
   commentItem: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
     gap: 12,
+    alignItems: 'flex-start',
   },
   commentAvatar: {
     width: 36,
@@ -851,22 +899,34 @@ const styles = StyleSheet.create({
   },
   commentContent: {
     flex: 1,
+    backgroundColor: Colors.surface,
+    padding: 10,
+    borderRadius: 12,
+    borderTopLeftRadius: 2, 
+  },
+  commentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   commentUsername: {
     fontSize: 14,
     fontWeight: '600',
     color: Colors.text,
-    marginBottom: 4,
   },
   commentText: {
     fontSize: 14,
     color: Colors.text,
-    lineHeight: 18,
-    marginBottom: 4,
+    lineHeight: 20,
   },
   commentTime: {
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  commentDeleteButton: {
+    padding: 8,
+    alignSelf: 'center',
   },
   emptyComments: {
     padding: 48,
@@ -903,36 +963,5 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  reportModalContainer: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    maxHeight: '80%',
-    paddingBottom: 20,
-  },
-  reportSubtitle: {
-    fontSize: 16,
-    color: Colors.text,
-    fontWeight: '600',
-    padding: 16,
-  },
-  reportOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  reportOptionText: {
-    fontSize: 16,
-    color: Colors.text,
   },
 });
