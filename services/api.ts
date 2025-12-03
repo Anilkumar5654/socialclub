@@ -1,4 +1,6 @@
-import { ApiLogger } from '@/app/api-debug';
+// services/api.ts (Updated Code)
+
+Import { ApiLogger } from '@/app/api-debug';
 import { getDeviceId } from '@/utils/deviceId';
 
 const API_BASE_URL = 'https://moviedbr.com/api';
@@ -174,8 +176,10 @@ class ApiClient {
   };
 
   home = {
-    getFeed: async (page: number = 1, limit: number = 10) => {
-      return this.request<{ posts: any[]; hasMore: boolean }>(`/home?page=${page}&limit=${limit}`);
+    // 🔥 UPDATED: Added feedType parameter and endpoint
+    getFeed: async (page: number = 1, limit: number = 10, feedType: 'for-you' | 'following' = 'for-you') => {
+      const endpoint = `/home/feed?page=${page}&limit=${limit}&type=${feedType}`;
+      return this.request<{ posts: any[]; hasMore: boolean }>(endpoint);
     },
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
   };
