@@ -306,11 +306,11 @@ class ApiClient {
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
   };
 
-  // 🔥 ADS MODULE (Using singular path now)
+  // 🔥 NEW ADS MODULE (Singular filename)
   ads = {
     trackImpression: async (data: { video_id: string; creator_id: string; ad_network: string; revenue: number }) => {
-      // Corrected to match server filename: track-impression.php
-      return this.request('/ads/track-impression', { 
+      // 🔥 Note: Using singular 'track-impression' as per your update
+      return this.request('/ads/track-impression', {
         method: 'POST',
         body: JSON.stringify(data),
       });
