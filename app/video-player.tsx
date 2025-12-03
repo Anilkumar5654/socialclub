@@ -37,13 +37,14 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 import { useWatchTimeTracker } from '@/hooks/useWatchTimeTracker';
 import { getDeviceId } from '@/utils/deviceId';
 
-// 🔥 RELATIVE IMPORTS (Best for preventing errors)
+// 🔥 RELATIVE IMPORTS
 import { api, MEDIA_BASE_URL } from '../services/api';
-import { VideoAdManager } from '../services/VideoAdManager';
+// बंडलर अब platforms के अनुसार services/VideoAdManager.ts/native.ts/web.ts को देखेगा
+import { VideoAdManager } from '../services/VideoAdManager'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// GLOBAL COUNTER
+// GLOBAL COUNTER FOR AD FREQUENCY
 let globalVideoViewCount = 0;
 const AD_FREQUENCY = 3; // Har 3rd video par Ad
 
@@ -284,11 +285,12 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
-  // 🔥 AD LOGIC
+  // 🔥 UPDATED AD LOGIC: Autoplay/Resume Logic added
   useEffect(() => {
     const checkAndPlayAd = async () => {
-        if (!video) return;
+        if (!video || !videoRef.current) return;
         
+        // 1. Ad Loading and Counter
         VideoAdManager.loadAd();
         globalVideoViewCount++;
         console.log(`[VideoPlayer] Count: ${globalVideoViewCount}`);
@@ -298,17 +300,39 @@ export default function VideoPlayerScreen() {
                             video.monetization_enabled === true;
 
         const shouldShowAd = (globalVideoViewCount >= AD_FREQUENCY) && isMonetized;
-
+        
+        // 2. Ad Show Logic
         if (shouldShowAd) {
             console.log('[VideoPlayer] Triggering Ad');
-            const adShown = await VideoAdManager.showAd(video);
-            if (adShown) globalVideoViewCount = 0;
+            
+            // 🛑 CRITICAL: Pause video before showing ad
+            await videoRef.current.pauseAsync(); 
+            pauseTracking(); // Stop watch time tracker
+            
+            // ShowAd will await until the ad is closed/skipped
+            const adShown = await VideoAdManager.showAd(video); 
+            
+            if (adShown) {
+                globalVideoViewCount = 0;
+            }
         }
+
+        // 3. Resume Playback (Always start/resume video after logic completes)
+        await videoRef.current.playAsync(); 
         setIsPlaying(true); 
+        resumeTracking(); // Restart watch time tracker
     };
 
     if (video) checkAndPlayAd();
-  }, [video, videoId]); 
+    
+    // Cleanup function: Pause video when component unmounts
+    return () => {
+        if (videoRef.current) {
+            videoRef.current.pauseAsync();
+        }
+        stopTracking();
+    };
+  }, [video, videoId, pauseTracking, resumeTracking, stopTracking]); 
 
   // View Tracking
   useEffect(() => {
