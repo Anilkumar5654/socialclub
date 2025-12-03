@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { Image } from 'expo-image'; 
 import { router } from 'expo-router';
 import {
   Heart,
@@ -9,11 +9,10 @@ import {
   Search,
   Bell,
   MessageSquare,
-  Play,
   Send,
   X,
 } from 'lucide-react-native';
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -34,6 +33,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+// 🔥 IMPORT StoryBar from the new location
+import StoryBar from '@/components/StoryBar'; 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { useAuth } from '@/contexts/AuthContext';
@@ -42,151 +43,9 @@ import { Post } from '@/types';
 
 const { width } = Dimensions.get('window');
 
-function StoryBar() {
-  const { user: currentUser } = useAuth();
-  const { data: storiesData, isLoading } = useQuery({
-    queryKey: ['stories'],
-    queryFn: () => api.stories.getStories(),
-  });
-
-  const stories = useMemo(() => {
-    if (!storiesData?.stories) return [];
-    
-    const groupedStories: { [key: string]: any } = {};
-    
-    storiesData.stories.forEach((story: any) => {
-      const userId = story.user?.id || story.user_id;
-      
-      if (!groupedStories[userId]) {
-        groupedStories[userId] = {
-          userId,
-          user: story.user || {
-            id: userId,
-            username: 'Unknown',
-            avatar: '',
-          },
-          stories: [],
-          hasUnwatched: false,
-          latestStoryTime: story.created_at,
-        };
-      }
-      
-      groupedStories[userId].stories.push(story);
-      
-      if (new Date(story.created_at) > new Date(groupedStories[userId].latestStoryTime)) {
-        groupedStories[userId].latestStoryTime = story.created_at;
-      }
-      
-      if (!story.is_viewed && userId !== currentUser?.id) {
-        groupedStories[userId].hasUnwatched = true;
-      }
-    });
-    
-    const storyArray = Object.values(groupedStories);
-    
-    storyArray.forEach((group: any) => {
-      group.stories.sort((a: any, b: any) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-    });
-    
-    const myStory = storyArray.find((s: any) => s.userId === currentUser?.id);
-    const otherStories = storyArray.filter((s: any) => s.userId !== currentUser?.id);
-    
-    const unwatchedStories = otherStories.filter((s: any) => s.hasUnwatched);
-    const watchedStories = otherStories.filter((s: any) => !s.hasUnwatched);
-    
-    unwatchedStories.sort((a: any, b: any) => 
-      new Date(b.latestStoryTime).getTime() - new Date(a.latestStoryTime).getTime()
-    );
-    watchedStories.sort((a: any, b: any) => 
-      new Date(b.latestStoryTime).getTime() - new Date(a.latestStoryTime).getTime()
-    );
-    
-    if (myStory) {
-      return [myStory, ...unwatchedStories, ...watchedStories];
-    }
-    
-    return [...unwatchedStories, ...watchedStories];
-  }, [storiesData, currentUser]);
-
-  const handleStoryPress = (userId: string) => {
-    router.push({ pathname: '/story-viewer', params: { userId } });
-  };
-
-  const handleYourStoryPress = () => {
-    router.push('/story-upload');
-  };
-
-  const getImageUri = (uri: string) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
-
-  if (isLoading) {
-    return (
-      <View style={styles.storyBar}>
-        <ActivityIndicator color={Colors.primary} />
-      </View>
-    );
-  }
-
-  const hasCurrentUserStory = stories.length > 0 && stories[0].userId === currentUser?.id;
-
-  return (
-    <View style={styles.storyBar}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {!hasCurrentUserStory && (
-          <TouchableOpacity 
-            style={styles.storyItem}
-            onPress={handleYourStoryPress}
-          >
-            <View style={styles.storyImageContainer}>
-              <Image 
-                source={{ uri: getImageUri(currentUser?.avatar || '') }} 
-                style={[styles.storyImage, styles.yourStoryBorder]} 
-              />
-              <View style={styles.addStoryButton}>
-                <Text style={styles.addStoryText}>+</Text>
-              </View>
-            </View>
-            <Text style={styles.storyUsername} numberOfLines={1}>
-              Your Story
-            </Text>
-          </TouchableOpacity>
-        )}
-        {stories.map((storyGroup: any) => {
-          const isYourStory = storyGroup.userId === currentUser?.id;
-          return (
-            <TouchableOpacity 
-              key={storyGroup.userId} 
-              style={styles.storyItem}
-              onPress={() => isYourStory ? handleYourStoryPress() : handleStoryPress(storyGroup.userId)}
-            >
-              <View style={styles.storyImageContainer}>
-                <Image 
-                  source={{ uri: getImageUri(storyGroup.user.avatar) }} 
-                  style={[
-                    styles.storyImage,
-                    isYourStory ? styles.yourStoryBorder : storyGroup.hasUnwatched ? styles.unwatchedBorder : styles.watchedBorder,
-                  ]} 
-                />
-                {isYourStory && (
-                  <View style={styles.addStoryButton}>
-                    <Text style={styles.addStoryText}>+</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.storyUsername} numberOfLines={1}>
-                {isYourStory ? 'Your Story' : storyGroup.user.username}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
+// ----------------------------------------------------------------
+// CommentsModal Component (Tightly coupled with PostItem)
+// ----------------------------------------------------------------
 
 function CommentsModal({
   visible,
@@ -211,7 +70,8 @@ function CommentsModal({
     onSuccess: () => {
       setComment('');
       queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
     onError: (error: any) => {
       Alert.alert('Error', error.message || 'Failed to post comment');
@@ -324,11 +184,15 @@ function CommentsModal({
   );
 }
 
+// ----------------------------------------------------------------
+// PostItem Component (Tightly coupled with Home Feed)
+// ----------------------------------------------------------------
+
 function PostItem({ post }: { post: Post }) {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const [isLiked, setIsLiked] = useState(post.isLiked);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isSaved, setIsSaved] = useState(post.isSaved);
   const [likes, setLikes] = useState(post.likes);
   const [commentsModalVisible, setCommentsModalVisible] = useState(false);
   const [isFollowing, setIsFollowing] = useState(
@@ -340,7 +204,8 @@ function PostItem({ post }: { post: Post }) {
     onSuccess: (data) => {
       setIsLiked(data.isLiked);
       setLikes(data.likes);
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
   });
 
@@ -349,7 +214,8 @@ function PostItem({ post }: { post: Post }) {
     onSuccess: (data) => {
       setIsLiked(data.isLiked);
       setLikes(data.likes);
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
   });
 
@@ -357,7 +223,8 @@ function PostItem({ post }: { post: Post }) {
     mutationFn: (userId: string) => api.users.follow(userId),
     onSuccess: (data) => {
       setIsFollowing(data.isFollowing);
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
     onError: (error: any) => {
       Alert.alert('Error', error.message || 'Failed to follow user');
@@ -368,7 +235,8 @@ function PostItem({ post }: { post: Post }) {
     mutationFn: (userId: string) => api.users.unfollow(userId),
     onSuccess: (data) => {
       setIsFollowing(data.isFollowing);
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
     onError: (error: any) => {
       Alert.alert('Error', error.message || 'Failed to unfollow user');
@@ -378,7 +246,8 @@ function PostItem({ post }: { post: Post }) {
   const deleteMutation = useMutation({
     mutationFn: (postId: string) => api.posts.delete(postId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
       Alert.alert('Success', 'Post deleted successfully');
     },
     onError: (error: any) => {
@@ -389,7 +258,8 @@ function PostItem({ post }: { post: Post }) {
   const shareMutation = useMutation({
     mutationFn: (postId: string) => api.posts.share(postId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['home-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-following'] });
     },
   });
 
@@ -510,10 +380,8 @@ function PostItem({ post }: { post: Post }) {
   const handleUserPress = () => {
     router.push({ pathname: '/user/[userId]', params: { userId: post.user.id } });
   };
-
-  const handleShortTap = () => {
-    router.push('/(tabs)/reels');
-  };
+  
+  // Reels/Videos are handled in separate tabs, so no tap logic needed here
 
   const getImageUri = (uri: string) => {
     if (!uri) return '';
@@ -566,10 +434,12 @@ function PostItem({ post }: { post: Post }) {
         </TouchableOpacity>
       </View>
 
-      {post.type === 'text' && (
+      {/* Post Type: TEXT */}
+      {post.type === 'text' && post.content && (
         <Text style={styles.postTextContent}>{post.content}</Text>
       )}
 
+      {/* Post Type: PHOTO (Image Carousel/Single Image) */}
       {post.images && post.images.length > 0 && (
         <ScrollView
           horizontal
@@ -587,52 +457,8 @@ function PostItem({ post }: { post: Post }) {
           ))}
         </ScrollView>
       )}
-
-      {post.type === 'short' && post.thumbnailUrl && (
-        <TouchableOpacity
-          style={styles.shortContainer}
-          onPress={handleShortTap}
-          activeOpacity={0.9}
-        >
-          <Image
-            source={{ uri: getImageUri(post.thumbnailUrl) }}
-            style={styles.shortImage}
-            contentFit="cover"
-          />
-          <View style={styles.shortOverlay}>
-            <View style={styles.shortPlayButton}>
-              <Play color={Colors.text} size={32} fill={Colors.text} />
-            </View>
-            <View style={styles.shortInfo}>
-              <View style={styles.shortStats}>
-                <Play color={Colors.text} size={16} fill={Colors.text} />
-                <Text style={styles.shortViewCount}>
-                  {post.views && post.views > 999
-                    ? `${(post.views / 1000).toFixed(1)}K`
-                    : post.views}{' '}
-                  views
-                </Text>
-              </View>
-              <Text style={styles.shortDuration}>{post.duration}</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {post.type === 'video' && post.thumbnailUrl && (
-        <View style={styles.videoContainer}>
-          <Image
-            source={{ uri: getImageUri(post.thumbnailUrl) }}
-            style={styles.postImage}
-            contentFit="cover"
-          />
-          <View style={styles.playIconContainer}>
-            <View style={styles.playIcon}>
-              <Text style={styles.playIconText}>▶</Text>
-            </View>
-          </View>
-        </View>
-      )}
+      
+      {/* Short/Video content rendering logic removed as per user request */}
 
       <View style={styles.postActions}>
         <View style={styles.postActionsLeft}>
@@ -668,9 +494,9 @@ function PostItem({ post }: { post: Post }) {
 
       <View style={styles.postStats}>
         <Text style={styles.likesText}>{likes.toLocaleString()} likes</Text>
-        {(post.type === 'photo' ||
-          post.type === 'video' ||
-          post.type === 'short') &&
+        
+        {/* Post Caption for Text/Photo (Showing caption if content exists) */}
+        {(post.type === 'photo' || post.type === 'text') &&
           post.content && (
             <Text style={styles.postCaption}>
               <Text style={styles.postCaptionUsername}>
@@ -679,6 +505,7 @@ function PostItem({ post }: { post: Post }) {
               {post.content}
             </Text>
           )}
+          
         {post.comments > 0 && (
           <TouchableOpacity onPress={() => setCommentsModalVisible(true)}>
             <Text style={styles.viewComments}>
@@ -700,11 +527,16 @@ function PostItem({ post }: { post: Post }) {
   );
 }
 
+// ----------------------------------------------------------------
+// HomeScreen Component (Main Export)
+// ----------------------------------------------------------------
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<'for-you' | 'following'>('for-you');
 
+  // useQuery for For You Feed
   const { 
     data: forYouData, 
     isLoading: isLoadingForYou, 
@@ -713,11 +545,11 @@ export default function HomeScreen() {
     isRefetching: isRefetchingForYou,
   } = useQuery({
     queryKey: ['feed-for-you'],
-    // 🔥 UPDATED: 'for-you' type भेजा जा रहा है
     queryFn: () => api.home.getFeed(1, 10, 'for-you'),
     enabled: isAuthenticated && activeTab === 'for-you',
   });
 
+  // useQuery for Following Feed
   const { 
     data: followingData, 
     isLoading: isLoadingFollowing, 
@@ -726,7 +558,6 @@ export default function HomeScreen() {
     isRefetching: isRefetchingFollowing,
   } = useQuery({
     queryKey: ['feed-following'],
-    // 🔥 UPDATED: 'following' type भेजा जा रहा है
     queryFn: () => api.home.getFeed(1, 10, 'following'),
     enabled: isAuthenticated && activeTab === 'following',
   });
@@ -735,8 +566,14 @@ export default function HomeScreen() {
   const isError = activeTab === 'for-you' ? isErrorForYou : isErrorFollowing;
   const isRefetching = activeTab === 'for-you' ? isRefetchingForYou : isRefetchingFollowing;
   const refetch = activeTab === 'for-you' ? refetchForYou : refetchFollowing;
+  
   const feedData = activeTab === 'for-you' ? forYouData : followingData;
-  const posts = feedData?.posts || [];
+  const allFeedItems = feedData?.posts || [];
+
+  // 🔥 FINAL FILTER: केवल 'text' और 'photo' types को होम फीड में रखें
+  const posts = allFeedItems.filter(item => 
+    item.type === 'text' || item.type === 'photo'
+  ); 
 
   if (!isAuthenticated) {
     return (
@@ -819,7 +656,7 @@ export default function HomeScreen() {
           data={posts}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <PostItem post={item} />}
-          ListHeaderComponent={<StoryBar />}
+          ListHeaderComponent={StoryBar}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.feedContent}
           refreshControl={
@@ -832,7 +669,10 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                No posts yet. Follow users to see their content!
+                {activeTab === 'following'
+                    ? 'Follow users to see their latest posts here.'
+                    : 'No viral posts found for you.'
+                }
               </Text>
             </View>
           }
@@ -841,6 +681,10 @@ export default function HomeScreen() {
     </View>
   );
 }
+
+// ----------------------------------------------------------------
+// Styles
+// ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: {
@@ -895,62 +739,6 @@ const styles = StyleSheet.create({
   },
   feedContent: {
     paddingBottom: 20,
-  },
-  storyBar: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingVertical: 12,
-    minHeight: 100,
-    justifyContent: 'center',
-  },
-  storyItem: {
-    alignItems: 'center',
-    marginHorizontal: 8,
-    width: 72,
-  },
-  storyImageContainer: {
-    position: 'relative',
-  },
-  storyImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 3,
-    borderColor: Colors.border,
-  },
-  yourStoryBorder: {
-    borderColor: Colors.border,
-  },
-  unwatchedBorder: {
-    borderColor: Colors.primary,
-  },
-  watchedBorder: {
-    borderColor: Colors.border,
-  },
-  addStoryButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.background,
-  },
-  addStoryText: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: '700' as const,
-    lineHeight: 14,
-  },
-  storyUsername: {
-    color: Colors.text,
-    fontSize: 11,
-    marginTop: 6,
-    textAlign: 'center',
   },
   postContainer: {
     marginTop: 16,
@@ -1009,92 +797,6 @@ const styles = StyleSheet.create({
     width: width,
     height: width * 1.25,
     backgroundColor: Colors.surface,
-  },
-  shortContainer: {
-    width: width,
-    height: width * 1.5,
-    backgroundColor: Colors.surface,
-    marginBottom: 8,
-    position: 'relative',
-  },
-  shortImage: {
-    width: '100%',
-    height: '100%',
-  },
-  shortOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  shortPlayButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  shortInfo: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  shortStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  shortViewCount: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: '700' as const,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  shortDuration: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: '700' as const,
-    backgroundColor: Colors.overlay,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  videoContainer: {
-    position: 'relative',
-    marginBottom: 8,
-  },
-  playIconContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playIconText: {
-    color: Colors.text,
-    fontSize: 24,
-    marginLeft: 4,
   },
   postActions: {
     flexDirection: 'row',
