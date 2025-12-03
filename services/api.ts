@@ -1,5 +1,3 @@
-// services/api.ts (Updated with deleteComment)
-
 import { ApiLogger } from '@/app/api-debug';
 import { getDeviceId } from '@/utils/deviceId';
 
@@ -202,38 +200,49 @@ class ApiClient {
   posts = {
     getPost: async (id: string) => this.request<{ post: any }>(`/posts/details?id=${id}`),
     create: async (formData: FormData) => this.request('/posts/create', { method: 'POST', body: formData }),
-    delete: async (id: string) => this.request(`/posts/delete?id=${id}`, { method: 'DELETE' }),
     
-    // Actions
+    // DELETE POST: Sends ID in Query AND Body for maximum compatibility
+    delete: async (id: string) => {
+      return this.request(`/posts/action/delete.php?id=${id}`, { 
+        method: 'POST', 
+        body: JSON.stringify({ post_id: id }) 
+      });
+    },
+    
+    // LIKE / UNLIKE
     like: async (id: string) => {
-      return this.request<{ isLiked: boolean; likes: number }>('/posts/action/like', {
+      return this.request<{ isLiked: boolean; likes: number }>('/posts/action/like.php', {
         method: 'POST', body: JSON.stringify({ post_id: id }),
       });
     },
     unlike: async (id: string) => {
-      return this.request<{ isLiked: boolean; likes: number }>('/posts/action/unlike', {
+      return this.request<{ isLiked: boolean; likes: number }>('/posts/action/unlike.php', {
         method: 'POST', body: JSON.stringify({ post_id: id }),
       });
     },
+
+    // COMMENTS
     comment: async (id: string, content: string) => {
-      return this.request<{ comment: any }>('/posts/action/comment', {
+      return this.request<{ comment: any }>('/posts/action/comment.php', {
         method: 'POST', body: JSON.stringify({ post_id: id, content }),
       });
     },
     getComments: async (id: string, page: number = 1) => {
-      return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/comments?post_id=${id}&page=${page}`);
+      return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/action/comment.php?post_id=${id}&page=${page}`);
     },
-    // 🔥 NEW: Delete Comment Action
+    // DELETE COMMENT
     deleteComment: async (commentId: string) => {
-      return this.request(`/posts/action/comment?comment_id=${commentId}`, { method: 'DELETE' });
+      return this.request(`/posts/action/comment.php?comment_id=${commentId}`, { method: 'DELETE' });
     },
+
+    // SHARE
     share: async (id: string) => {
-      return this.request(`/posts/action/share`, { method: 'POST', body: JSON.stringify({ post_id: id }) });
+      return this.request(`/posts/action/share.php`, { method: 'POST', body: JSON.stringify({ post_id: id }) });
     },
     
-    // 🔥 NEW: Report Post Action (From previous step)
+    // REPORT
     report: async (postId: string, reason: string, description?: string) => {
-      return this.request('/posts/action/report', { 
+      return this.request('/posts/action/report.php', { 
         method: 'POST', 
         body: JSON.stringify({ post_id: postId, reason, description }) 
       });
@@ -419,4 +428,3 @@ class ApiClient {
 
 export const api = new ApiClient(API_BASE_URL, MEDIA_BASE_URL);
 export { API_BASE_URL, MEDIA_BASE_URL };
-          
