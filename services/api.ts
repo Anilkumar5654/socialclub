@@ -282,6 +282,31 @@ class ApiClient {
     },
     getRecommended: async (videoId: string) => this.request<{ videos: any[] }>(`/videos/recommended?video_id=${videoId}`),
     
+    // 🔥 ADDED: trackWatch function to resolve the issue 
+    trackWatch: async (videoId: string, watchDuration: number, completionRate: number) => {
+      let deviceId = 'unknown';
+      try {
+        // Device ID fetching logic copied from reels.trackView
+        const idPromise = getDeviceId();
+        const timeoutPromise = new Promise<string>(resolve => setTimeout(() => resolve('timeout_fallback'), 1500));
+        const id = await Promise.race([idPromise, timeoutPromise]);
+        if(id && id !== 'timeout_fallback') deviceId = id;
+      } catch (e) {
+        console.error('[API] Failed to get Device ID for trackWatch:', e);
+      }
+
+      return this.request('/videos/track-watch', {
+        method: 'POST',
+        body: JSON.stringify({
+          video_id: videoId,
+          video_type: 'video', // Explicitly setting type
+          watch_duration: watchDuration,
+          completion_rate: completionRate,
+          device_id: deviceId
+        })
+      });
+    },
+
     view: async (id: string) => {
       let deviceId = 'unknown_device';
       try {
