@@ -307,6 +307,16 @@ class ApiClient {
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
   };
 
+  // 🔥 NEW ADS MODULE
+  ads = {
+    trackImpression: async (data: { video_id: string; creator_id: string; ad_network: string; revenue: number }) => {
+      return this.request('/ads/track-impression', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+  };
+
   users = {
     getProfile: async (userId: string) => this.request<{ user: any }>(`/users/fetch_profile?user_id=${userId}`),
     updateProfile: async (formData: FormData) => this.request('/users/edit_profile', { method: 'POST', body: formData }),
