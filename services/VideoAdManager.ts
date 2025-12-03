@@ -1,56 +1,77 @@
-import { RewardedInterstitialAd, AdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { Platform } from 'react-native';
 import { api } from './api'; 
 
-// 🔥 TUMHARI REAL UNIT ID (Production)
-const PRODUCTION_ID = 'ca-app-pub-5607897410447560/1452792826';
+// Variable declarations to hold the module dynamically
+let InterstitialAd: any = null;
+let AdEventType: any = null;
+let TestIds: any = null;
 
-// Safety: Development me Test ID use hogi, Real app me Real ID
-const AD_UNIT_ID = __DEV__ ? TestIds.REWARDED_INTERSTITIAL : PRODUCTION_ID;
+// 🔥 CRITICAL FIX: Only require the native module if NOT on Web
+if (Platform.OS !== 'web') {
+  try {
+    const MobileAds = require('react-native-google-mobile-ads');
+    InterstitialAd = MobileAds.InterstitialAd;
+    AdEventType = MobileAds.AdEventType;
+    TestIds = MobileAds.TestIds;
+  } catch (e) {
+    console.warn('AdMob module not found or failed to load.');
+  }
+}
 
-let rewardedInterstitial: RewardedInterstitialAd | null = null;
+// ⚠️ REPLACE WITH REAL ADMOB ID FOR PRODUCTION
+const AD_UNIT_ID = (TestIds) ? TestIds.INTERSTITIAL : 'ca-app-pub-xxxxxxxxxxxxx/yyyyyyyyyy';
+
+let interstitial: any = null;
 let adLoaded = false;
 
 export const VideoAdManager = {
   
   // 1. Load Ad
   loadAd: () => {
+    // If on Web or module not loaded, stop here
+    if (Platform.OS === 'web' || !InterstitialAd) return;
+
     if (adLoaded) return; 
 
-    // Create Rewarded Interstitial Ad
-    rewardedInterstitial = RewardedInterstitialAd.createForAdRequest(AD_UNIT_ID, {
+    interstitial = InterstitialAd.createForAdRequest(AD_UNIT_ID, {
       requestNonPersonalizedAdsOnly: true,
     });
 
-    rewardedInterstitial.addAdEventListener(AdEventType.LOADED, () => {
+    interstitial.addAdEventListener(AdEventType.LOADED, () => {
       console.log('[AdManager] Ad Loaded');
       adLoaded = true;
     });
 
-    rewardedInterstitial.addAdEventListener(AdEventType.CLOSED, () => {
+    interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       console.log('[AdManager] Ad Closed');
       adLoaded = false;
-      // Load next ad immediately
+      // Load the next ad immediately
       VideoAdManager.loadAd(); 
     });
 
-    // 🔥 TRACKING: Jab Paisa Banega (User earned reward)
-    rewardedInterstitial.addAdEventListener(AdEventType.EARNED_REWARD, (reward) => {
-      console.log('[AdManager] User Earned Reward:', reward);
-      // Yahan hum tracking bhejenge (Amount abhi dummy hai)
+    // TRACKING: When revenue is generated
+    interstitial.addAdEventListener(AdEventType.PAID, (params: any) => {
+      console.log('[AdManager] Revenue:', params);
     });
 
-    rewardedInterstitial.load();
+    interstitial.load();
   },
 
   // 2. Show Ad Logic
   showAd: async (currentVideo: any) => {
-    if (adLoaded && rewardedInterstitial) {
-      console.log('[AdManager] Showing Rewarded Ad...');
+    // If on Web, skip ad logic completely
+    if (Platform.OS === 'web' || !InterstitialAd) {
+      console.log('[AdManager] Web detected, skipping ad.');
+      return false;
+    }
+
+    if (adLoaded && interstitial) {
+      console.log('[AdManager] Showing Ad...');
       
-      // Track Impression in Database
+      // Log impression in database
       await VideoAdManager.trackImpression(currentVideo);
       
-      rewardedInterstitial.show();
+      interstitial.show();
       adLoaded = false; 
       return true; 
     }
@@ -63,7 +84,7 @@ export const VideoAdManager = {
   // 3. Backend Tracking
   trackImpression: async (video: any) => {
     try {
-      // Estimated Revenue (Backend will calculate real value later)
+      // Fallback revenue
       const estimatedRevenue = 0.001; 
 
       await api.ads.trackImpression({ 

@@ -37,9 +37,8 @@ import { formatTimeAgo } from '@/constants/timeFormat';
 import { useWatchTimeTracker } from '@/hooks/useWatchTimeTracker';
 import { getDeviceId } from '@/utils/deviceId';
 
-// 🔥 RELATIVE IMPORTS
+// 🔥 RELATIVE IMPORTS (Best for preventing errors)
 import { api, MEDIA_BASE_URL } from '../services/api';
-// 🔥 IMPORT AD MANAGER
 import { VideoAdManager } from '../services/VideoAdManager';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -161,6 +160,7 @@ function RecommendedVideoCard({ video, onPress }: { video: VideoData; onPress: (
     return views.toString();
   };
 
+  // 🔥 SAFE CHANNEL NAME LOGIC
   const channelName = video.channel?.name || video.user?.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel?.avatar || video.user?.avatar || 'assets/c_profile.jpg');
   const isVerified = video.channel?.is_verified || video.user?.isVerified || video.user?.is_verified;
@@ -284,17 +284,14 @@ export default function VideoPlayerScreen() {
     }
   }, [video]);
 
-  // 🔥🔥🔥 AD LOGIC INTEGRATION (UPDATED) 🔥🔥🔥
+  // 🔥 AD LOGIC
   useEffect(() => {
     const checkAndPlayAd = async () => {
         if (!video) return;
         
-        // 1. Always request a fresh ad for the NEXT time
         VideoAdManager.loadAd();
-
-        // 2. Increment global counter
         globalVideoViewCount++;
-        console.log(`[VideoPlayer] View Count: ${globalVideoViewCount}`);
+        console.log(`[VideoPlayer] Count: ${globalVideoViewCount}`);
 
         const isMonetized = video.monetization_enabled === 1 || 
                             video.monetization_enabled === '1' || 
@@ -303,35 +300,15 @@ export default function VideoPlayerScreen() {
         const shouldShowAd = (globalVideoViewCount >= AD_FREQUENCY) && isMonetized;
 
         if (shouldShowAd) {
-            console.log('[VideoPlayer] Triggering Ad...');
-            
-            // 🔥 PAUSE VIDEO BEFORE AD STARTS
-            setIsPlaying(false);
-            
-            // Show Ad (Wait for it to trigger)
+            console.log('[VideoPlayer] Triggering Ad');
             const adShown = await VideoAdManager.showAd(video);
-            
-            if (adShown) {
-                globalVideoViewCount = 0;
-                // Note: We keep isPlaying(false) here. 
-                // When User closes the Ad, they will see the paused video and tap Play.
-                // This prevents audio from playing BEHIND the ad.
-                setShowControls(true); 
-            } else {
-                // If Ad failed to show, play video immediately
-                setIsPlaying(true);
-            }
-        } else {
-            // No Ad, Play Video
-            setIsPlaying(true);
+            if (adShown) globalVideoViewCount = 0;
         }
+        setIsPlaying(true); 
     };
 
-    if (video && videoId) {
-        checkAndPlayAd();
-    }
+    if (video) checkAndPlayAd();
   }, [video, videoId]); 
-  // 🔥🔥🔥 END AD LOGIC 🔥🔥🔥
 
   // View Tracking
   useEffect(() => {
@@ -439,6 +416,7 @@ export default function VideoPlayerScreen() {
 
   const videoUrl = getMediaUrl(video.video_url || video.videoUrl);
   
+  // 🔥 FIX: Safe Channel Name Variable (No more crashes!)
   let safeChannelName = 'Channel';
   if (channel?.name) safeChannelName = channel.name;
   else if (video?.channel?.name) safeChannelName = video.channel.name;
@@ -460,7 +438,6 @@ export default function VideoPlayerScreen() {
           style={styles.player}
           resizeMode={ResizeMode.CONTAIN}
           useNativeControls={false}
-          // 🔥 IMPORTANT: Only play if isPlaying is true (Ad logic controls this)
           shouldPlay={isPlaying}
           isLooping={false}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
@@ -505,6 +482,7 @@ export default function VideoPlayerScreen() {
             <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
             <View style={styles.channelDetails}>
               <View style={styles.channelNameRow}>
+                {/* 🔥 FIX: Using Safe Channel Name */}
                 <Text style={styles.channelName}>{safeChannelName}</Text>
                 {isChannelVerified && <Text style={styles.verifiedBadge}> ✓</Text>}
               </View>
