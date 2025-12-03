@@ -2,7 +2,7 @@ import { InterstitialAd, AdEventType, TestIds } from 'react-native-google-mobile
 import { api } from './api'; 
 
 // ⚠️ REPLACE WITH REAL ADMOB ID FOR PRODUCTION
-// Android: ca-app-pub-xxxxxxxxxxxxxxxx/yyyyyyyyyy
+// Use TestIds.INTERSTITIAL for development to avoid account bans
 const AD_UNIT_ID = __DEV__ ? TestIds.INTERSTITIAL : 'ca-app-pub-xxxxxxxxxxxxx/yyyyyyyyyy';
 
 let interstitial: InterstitialAd | null = null;
@@ -75,4 +75,3 @@ export const VideoAdManager = {
     }
   }
 };
-        
