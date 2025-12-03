@@ -39,7 +39,6 @@ class ApiClient {
     const isFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
     if (!isFormDataBody) {
-      // NOTE: This header is NOT set if the body is FormData
       headers['Content-Type'] = 'application/json';
     }
 
@@ -307,10 +306,11 @@ class ApiClient {
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
   };
 
-  // 🔥 NEW ADS MODULE
+  // 🔥 ADS MODULE (Using singular path now)
   ads = {
     trackImpression: async (data: { video_id: string; creator_id: string; ad_network: string; revenue: number }) => {
-      return this.request('/ads/track-impression', {
+      // Corrected to match server filename: track-impression.php
+      return this.request('/ads/track-impression', { 
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -354,8 +354,6 @@ class ApiClient {
     
     create: async (data: any) => this.request('/channels/create', { method: 'POST', body: JSON.stringify(data) }),
     
-    // FIX: Using the correct function name 'updateChannel' for FormData
-    // The body is FormData (which is automatically handled by the request method)
     updateChannel: async (formData: FormData) => this.request('/channels/update', { 
         method: 'POST', 
         body: formData 
