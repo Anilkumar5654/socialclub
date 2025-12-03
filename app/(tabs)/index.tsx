@@ -15,8 +15,6 @@ import {
   Trash2,
   ChevronRight,
   Flag,
-  AlertTriangle,
-  CheckCircle2
 } from 'lucide-react-native';
 import React, { useState, useCallback } from 'react';
 import {
@@ -31,8 +29,8 @@ import {
   RefreshControl,
   Modal,
   TextInput,
-  Platform,
   Share as RNShare,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -47,7 +45,7 @@ import { Post } from '@/types';
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// 1. GLOBAL CUSTOM ALERT COMPONENT (Replaces Native Alert)
+// 1. GLOBAL CUSTOM ALERT COMPONENT
 // ----------------------------------------------------------------
 interface CustomAlertProps {
   visible: boolean;
@@ -80,7 +78,7 @@ function CustomAlert({ visible, title, message, buttons, onClose }: CustomAlertP
                 ]}
                 onPress={() => {
                   btn.onPress();
-                  if (btn.style === 'cancel') onClose();
+                  onClose();
                 }}
               >
                 <Text style={[
@@ -194,7 +192,7 @@ function CommentsModal({ visible, onClose, postId, showCustomAlert }: any) {
       queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
       queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
     },
-    onError: (err: any) => showCustomAlert('Error', err.message || 'Failed')
+    onError: (err: any) => showCustomAlert('Error', err.message || 'Failed', [{ text: 'OK', style: 'default', onPress: () => {} }])
   });
 
   const deleteMutation = useMutation({
@@ -203,7 +201,7 @@ function CommentsModal({ visible, onClose, postId, showCustomAlert }: any) {
       queryClient.invalidateQueries({ queryKey: ['post-comments', postId] });
       queryClient.invalidateQueries({ queryKey: ['feed-for-you'] });
     },
-    onError: (err: any) => showCustomAlert('Error', err.message || 'Failed')
+    onError: (err: any) => showCustomAlert('Error', err.message || 'Failed', [{ text: 'OK', style: 'default', onPress: () => {} }])
   });
 
   const confirmDelete = (cid: string) => {
@@ -223,7 +221,7 @@ function CommentsModal({ visible, onClose, postId, showCustomAlert }: any) {
         {isLoading ? <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} /> : (
           <FlatList
             data={data?.comments || []}
-            keyExtractor={i => i.id}
+            keyExtractor={(i) => i.id.toString()}
             contentContainerStyle={{ padding: 16 }}
             renderItem={({ item }) => (
               <View style={styles.commentItem}>
@@ -231,14 +229,20 @@ function CommentsModal({ visible, onClose, postId, showCustomAlert }: any) {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.commentUsername}>{item.user?.username}</Text>
                   <Text style={styles.commentText}>{item.content}</Text>
+                  <Text style={styles.commentTime}>{formatTimeAgo(item.created_at)}</Text>
                 </View>
-                {(currentUser?.id === item.user_id || currentUser?.id === item.user?.id) && (
+                {(String(currentUser?.id) === String(item.user_id) || String(currentUser?.id) === String(item.user?.id)) && (
                   <TouchableOpacity onPress={() => confirmDelete(item.id)} style={{ padding: 8 }}>
                     <Trash2 size={16} color={Colors.textMuted} />
                   </TouchableOpacity>
                 )}
               </View>
             )}
+            ListEmptyComponent={
+              <View style={styles.emptyComments}>
+                <Text style={styles.emptyCommentsText}>No comments yet</Text>
+              </View>
+            }
           />
         )}
         <View style={styles.commentInputContainer}>
@@ -260,6 +264,7 @@ function PostItem({ post, showCustomAlert }: any) {
   const queryClient = useQueryClient();
   const [isLiked, setIsLiked] = useState(post.isLiked);
   const [likes, setLikes] = useState(post.likes);
+  const [isSaved, setIsSaved] = useState(post.isSaved);
   
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -296,18 +301,28 @@ function PostItem({ post, showCustomAlert }: any) {
     ]);
   };
 
+  const handleShare = async () => {
+    try {
+      const shareUrl = `https://socialclub.com/posts/${post.id}`;
+      api.posts.share(post.id);
+      await RNShare.share({ message: `Check out this post: ${shareUrl}`, url: shareUrl });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const imgUri = (uri: string) => uri ? (uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`) : '';
 
   return (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }} onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: post.user.id } })}>
           <Image source={{ uri: imgUri(post.user.avatar) }} style={styles.postAvatar} />
           <View>
             <Text style={styles.postName}>{post.user.name || post.user.username}</Text>
             {post.location && <Text style={styles.postLocation}>{post.location}</Text>}
           </View>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setOptionsOpen(true)} style={{ padding: 8 }}>
           <MoreHorizontal color={Colors.text} size={24} />
         </TouchableOpacity>
@@ -315,7 +330,7 @@ function PostItem({ post, showCustomAlert }: any) {
 
       {post.content && <Text style={styles.postTextContent}>{post.content}</Text>}
       {post.images?.length > 0 && (
-        <ScrollView horizontal pagingEnabled>
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
           {post.images.map((img: string, i: number) => (
             <Image key={i} source={{ uri: imgUri(img) }} style={styles.postImage} contentFit="cover" />
           ))}
@@ -330,10 +345,13 @@ function PostItem({ post, showCustomAlert }: any) {
           <TouchableOpacity onPress={() => setCommentsOpen(true)}>
             <MessageCircle color={Colors.text} size={26} />
           </TouchableOpacity>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={handleShare}>
             <Share2 color={Colors.text} size={24} />
           </TouchableOpacity>
         </View>
+        <TouchableOpacity onPress={() => setIsSaved(!isSaved)}>
+          <Bookmark color={isSaved ? Colors.primary : Colors.text} fill={isSaved ? Colors.primary : 'transparent'} size={24} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.postStats}>
@@ -344,7 +362,7 @@ function PostItem({ post, showCustomAlert }: any) {
       <PostOptionsModal 
         visible={optionsOpen} 
         onClose={() => setOptionsOpen(false)} 
-        isOwnPost={user?.id === post.user.id} 
+        isOwnPost={String(user?.id) === String(post.user.id)} 
         onDelete={handleDelete} 
         onReport={() => setReportOpen(true)} 
       />
@@ -362,7 +380,6 @@ export default function HomeScreen() {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<'for-you' | 'following'>('for-you');
   
-  // Custom Alert State
   const [alertConfig, setAlertConfig] = useState<CustomAlertProps>({ 
     visible: false, title: '', message: '', buttons: [], onClose: () => {} 
   });
@@ -416,7 +433,7 @@ export default function HomeScreen() {
       {isLoading ? <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 50 }} /> : (
         <FlatList
           data={posts}
-          keyExtractor={item => item.id}
+          keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => <PostItem post={item} showCustomAlert={showCustomAlert} />}
           ListHeaderComponent={StoryBar}
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
@@ -425,7 +442,6 @@ export default function HomeScreen() {
         />
       )}
 
-      {/* Global Custom Alert */}
       <CustomAlert {...alertConfig} />
     </View>
   );
@@ -474,7 +490,7 @@ const styles = StyleSheet.create({
   modalOptionText: { color: Colors.text, fontSize: 16 },
 
   // Popup Style (Report)
-  popupContainer: { backgroundColor: Colors.surface, borderRadius: 12, padding: 20, maxHeight: '60%' },
+  popupContainer: { backgroundColor: Colors.surface, borderRadius: 12, padding: 20, maxHeight: '60%', width: '100%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   modalTitle: { color: Colors.text, fontSize: 18, fontWeight: 'bold' },
 
@@ -484,6 +500,9 @@ const styles = StyleSheet.create({
   commentAvatar: { width: 36, height: 36, borderRadius: 18 },
   commentUsername: { color: Colors.text, fontWeight: '600', fontSize: 14 },
   commentText: { color: Colors.text, fontSize: 14 },
+  commentTime: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
+  emptyComments: { padding: 48, alignItems: 'center' },
+  emptyCommentsText: { fontSize: 15, color: Colors.textSecondary },
   commentInputContainer: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderColor: Colors.border, alignItems: 'center', gap: 10 },
   commentInput: { flex: 1, backgroundColor: Colors.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: Colors.text },
   
