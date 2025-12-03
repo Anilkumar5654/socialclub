@@ -33,14 +33,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
-import { api, MEDIA_BASE_URL } from '@/services/api';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { useWatchTimeTracker } from '@/hooks/useWatchTimeTracker';
 import { getDeviceId } from '@/utils/deviceId';
-import { Comment } from '@/types';
 
-// IMPORT AD MANAGER
-import { VideoAdManager } from '@/services/VideoAdManager';
+// 🔥 FIX: Relative imports to avoid path aliases issues
+import { api, MEDIA_BASE_URL } from '../services/api';
+import { VideoAdManager } from '../services/VideoAdManager';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -61,6 +60,20 @@ const formatDuration = (millis: number) => {
 };
 
 // --- TYPES ---
+interface Comment {
+  id: string;
+  user_id: string;
+  content: string;
+  likes?: number;
+  created_at?: string;
+  timestamp?: string;
+  user?: {
+    id: string;
+    username?: string;
+    avatar?: string;
+  };
+}
+
 interface VideoData {
   id: string;
   title?: string;
@@ -79,7 +92,7 @@ interface VideoData {
   timestamp?: string;
   isLiked?: boolean;
   isSubscribed?: boolean;
-  monetization_enabled?: boolean | number | string; // Added for Ad Logic
+  monetization_enabled?: boolean | number | string; // For Ad Logic
   user?: {
     id: string;
     name?: string;
@@ -232,13 +245,13 @@ export default function VideoPlayerScreen() {
   const video: VideoData | undefined = videoData?.video;
 
   const { data: channelData } = useQuery({
-    queryKey: ['channel-details', videoData?.video?.user?.channel_id],
+    queryKey: ['channel-details', video?.user?.channel_id],
     queryFn: async () => {
-      const channelId = videoData?.video?.user?.channel_id;
+      const channelId = video?.user?.channel_id;
       if (!channelId) return null;
       return api.channels.getChannel(channelId);
     },
-    enabled: !!videoData?.video?.user?.channel_id,
+    enabled: !!video?.user?.channel_id,
   });
 
   const { data: commentsData, refetch: refetchComments } = useQuery({
@@ -679,6 +692,7 @@ const styles = StyleSheet.create({
   retryButton: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
   retryButtonText: { color: Colors.text, fontSize: 15, fontWeight: '600' },
   
+  // Custom Player Styles
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16 / 9, backgroundColor: '#000', position: 'relative' },
   player: { width: '100%', height: '100%' },
   overlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
@@ -693,16 +707,19 @@ const styles = StyleSheet.create({
   progressBarContainer: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', marginRight: 10, borderRadius: 2 },
   progressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
 
+  // Video Details
   videoDetails: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   videoTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, lineHeight: 24, marginBottom: 8 },
   videoStats: { fontSize: 14, color: Colors.textSecondary, marginBottom: 16 },
   
+  // Actions
   actionsContainer: { flexDirection: 'row', gap: 12, paddingRight: 16 },
   actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: Colors.surface },
   actionButtonIconOnly: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
   actionText: { fontSize: 14, fontWeight: '600', color: Colors.text },
   actionTextActive: { color: Colors.primary },
 
+  // Channel
   channelContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   channelInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   channelAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
@@ -716,6 +733,7 @@ const styles = StyleSheet.create({
   subscribeText: { fontSize: 14, fontWeight: '700', color: Colors.text },
   subscribedText: { color: Colors.textSecondary },
 
+  // Description & Comments
   descriptionContainer: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   descriptionText: { fontSize: 14, color: Colors.text, lineHeight: 20, marginBottom: 8 },
   showMoreButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -726,6 +744,7 @@ const styles = StyleSheet.create({
   commentPreviewAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.surface },
   commentPreviewText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 18 },
 
+  // Recommended Section
   recommendedSection: { paddingBottom: 20 },
   recommendedSectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginHorizontal: 16, marginVertical: 16 },
   recommendedCard: { marginBottom: 20, backgroundColor: Colors.background },
@@ -739,6 +758,7 @@ const styles = StyleSheet.create({
   recommendedTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, lineHeight: 20 },
   recommendedMeta: { fontSize: 12, color: Colors.textSecondary, lineHeight: 16 },
 
+  // Modal
   modalContainer: { flex: 1, backgroundColor: Colors.background },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
