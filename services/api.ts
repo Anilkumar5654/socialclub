@@ -181,19 +181,33 @@ class ApiClient {
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
   };
 
+  // --- STORY SYSTEM API (Confirmed & Synced) ---
   stories = {
+    // Fetches ALL stories (index.php)
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
+    
+    // Optional: Fetches user specific stories (if you create user.php later)
     getUserStories: async (userId: string) => this.request<{ stories: any[] }>(`/stories/user?user_id=${userId}`),
+    
+    // Viewers List (viewers.php)
     getViewers: async (storyId: string) => this.request<{ viewers: any[] }>(`/stories/viewers?story_id=${storyId}`),
+    
+    // React/Heart (react.php)
     react: async (storyId: string, reactionType: 'heart' | 'like') => {
       return this.request(`/stories/react`, {
         method: 'POST', body: JSON.stringify({ story_id: storyId, reaction_type: reactionType }),
       });
     },
+    
+    // Upload Story (upload.php)
     upload: async (formData: FormData) => this.request('/stories/upload', { method: 'POST', body: formData }),
+    
+    // Track View (view.php)
     view: async (storyId: string) => {
       return this.request(`/stories/view`, { method: 'POST', body: JSON.stringify({ story_id: storyId }) });
     },
+    
+    // Delete Story (delete.php)
     delete: async (storyId: string) => this.request(`/stories/delete?id=${storyId}`, { method: 'DELETE' }),
   };
 
@@ -221,34 +235,24 @@ class ApiClient {
       });
     },
 
-    // ------------------------------------------------------------------
-    // FIXED: Comment Post (Action) aur Get Comments (Fetch) alag kar diye
-    // ------------------------------------------------------------------
-    
-    // 1. Comment POST karna (Action Folder)
     comment: async (id: string, content: string) => {
       return this.request<{ comment: any }>('/posts/action/comment.php', {
         method: 'POST', body: JSON.stringify({ post_id: id, content }),
       });
     },
 
-    // 2. Comments FETCH karna (Direct comments.php se)
     getComments: async (id: string, page: number = 1) => {
-      // FIX: Changed from /posts/action/comment.php to /posts/comments.php
       return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/comments.php?post_id=${id}&page=${page}`);
     },
 
-    // DELETE COMMENT
     deleteComment: async (commentId: string) => {
       return this.request(`/posts/action/comment.php?comment_id=${commentId}`, { method: 'DELETE' });
     },
 
-    // SHARE
     share: async (id: string) => {
       return this.request(`/posts/action/share.php`, { method: 'POST', body: JSON.stringify({ post_id: id }) });
     },
     
-    // REPORT
     report: async (postId: string, reason: string, description?: string) => {
       return this.request('/posts/action/report.php', { 
         method: 'POST', 
