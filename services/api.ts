@@ -181,34 +181,19 @@ class ApiClient {
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
   };
 
-  // --- STORIES MODULE (UPDATED & FINAL) ---
   stories = {
-    // 1. Get Stories (index.php) - Returns stories with is_liked & is_viewed status
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
-    
-    // 2. Get User Specific Stories
     getUserStories: async (userId: string) => this.request<{ stories: any[] }>(`/stories/user?user_id=${userId}`),
-    
-    // 3. Viewers List (viewers.php) - Returns viewers + reaction type
     getViewers: async (storyId: string) => this.request<{ viewers: any[] }>(`/stories/viewers?story_id=${storyId}`),
-    
-    // 4. React (react.php) - Handles Like/Unlike Toggle
     react: async (storyId: string, reactionType: 'heart' | 'like') => {
       return this.request<{ success: boolean; action: 'added' | 'removed'; message: string }>(`/stories/react`, {
-        method: 'POST', 
-        body: JSON.stringify({ story_id: storyId, reaction_type: reactionType }),
+        method: 'POST', body: JSON.stringify({ story_id: storyId, reaction_type: reactionType }),
       });
     },
-    
-    // 5. Upload Story (upload.php) - Handles Image/Video + Caption + Duration
     upload: async (formData: FormData) => this.request('/stories/upload', { method: 'POST', body: formData }),
-    
-    // 6. Track View (view.php) - Increments view count
     view: async (storyId: string) => {
       return this.request(`/stories/view`, { method: 'POST', body: JSON.stringify({ story_id: storyId }) });
     },
-    
-    // 7. Delete Story (delete.php) - Deletes file & DB record
     delete: async (storyId: string) => this.request(`/stories/delete?id=${storyId}`, { method: 'DELETE' }),
   };
 
@@ -260,6 +245,7 @@ class ApiClient {
     },
   };
 
+  // --- REELS MODULE (UPDATED FOR VIRAL LOGIC) ---
   reels = {
     getReels: async (page: number = 1, limit: number = 10) => {
       return this.request<{ reels: any[]; hasMore: boolean }>(`/reels?page=${page}&limit=${limit}`);
@@ -289,23 +275,14 @@ class ApiClient {
     },
     upload: async (formData: FormData) => this.request('/reels/upload', { method: 'POST', body: formData }),
 
-    trackView: async (reelId: string, watchDuration: number, completionRate: number) => {
-      let deviceId = 'unknown';
-      try {
-        const idPromise = getDeviceId();
-        const timeoutPromise = new Promise<string>(resolve => setTimeout(() => resolve('timeout_fallback'), 1500));
-        const id = await Promise.race([idPromise, timeoutPromise]);
-        if(id) deviceId = id;
-      } catch (e) {}
-
-      return this.request('/videos/track-watch', {
+    // Updated: Uses kebab-case URL (track-view.php)
+    trackView: async (reelId: string, watchDuration: number, totalDuration: number) => {
+      return this.request('/reels/track-view.php', {
         method: 'POST',
         body: JSON.stringify({
-          video_id: reelId,
-          video_type: 'reel',
+          reel_id: reelId,
           watch_duration: watchDuration,
-          completion_rate: completionRate,
-          device_id: deviceId
+          total_duration: totalDuration
         })
       });
     }
@@ -320,40 +297,21 @@ class ApiClient {
     getRecommended: async (videoId: string) => this.request<{ videos: any[] }>(`/videos/recommended?video_id=${videoId}`),
     
     trackWatch: async (videoId: string, watchDuration: number, completionRate: number) => {
-      let deviceId = 'unknown';
-      try {
-        const idPromise = getDeviceId();
-        const timeoutPromise = new Promise<string>(resolve => setTimeout(() => resolve('timeout_fallback'), 1500));
-        const id = await Promise.race([idPromise, timeoutPromise]);
-        if(id && id !== 'timeout_fallback') deviceId = id;
-      } catch (e) {
-        console.error('[API] Failed to get Device ID for trackWatch:', e);
-      }
-
+      // Logic for device ID fallback handled internally or simply send user ID based logic
       return this.request('/videos/track-watch', {
         method: 'POST',
         body: JSON.stringify({
           video_id: videoId,
           video_type: 'video',
           watch_duration: watchDuration,
-          completion_rate: completionRate,
-          device_id: deviceId
+          completion_rate: completionRate
         })
       });
     },
 
     view: async (id: string) => {
-      let deviceId = 'unknown_device';
-      try {
-        const idPromise = getDeviceId();
-        const timeoutPromise = new Promise<string | null>(resolve => setTimeout(() => resolve(null), 2000));
-        const id = await Promise.race([idPromise, timeoutPromise]);
-        if (id && typeof id === 'string') deviceId = id;
-      } catch (err) {
-        console.log('[API] Device ID fetch error:', err);
-      }
       return this.request(`/videos/action/view`, {
-        method: 'POST', body: JSON.stringify({ video_id: id, device_id: deviceId }),
+        method: 'POST', body: JSON.stringify({ video_id: id }),
       });
     },
 
