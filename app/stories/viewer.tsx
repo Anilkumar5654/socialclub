@@ -46,7 +46,7 @@ interface CustomAlertProps {
 const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText = 'Confirm', isDestructive = false }: CustomAlertProps) => {
   if (!visible) return null;
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.alertOverlay}>
         <View style={styles.alertBox}>
           <Text style={styles.alertTitle}>{title}</Text>
@@ -65,7 +65,7 @@ const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText
   );
 };
 
-// --- FLOATING HEART ANIMATION ---
+// --- 2. FLOATING HEART ANIMATION ---
 const FloatingHeart = ({ onComplete }: { onComplete: () => void }) => {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -73,16 +73,20 @@ const FloatingHeart = ({ onComplete }: { onComplete: () => void }) => {
       toValue: 1, duration: 1000, easing: Easing.out(Easing.ease), useNativeDriver: true,
     }).start(() => onComplete());
   }, []);
+  
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -200] });
   const opacity = anim.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 1, 0] });
+  const scale = anim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0.5, 1.2, 1] });
+  const randomX = Math.random() * 40 - 20;
+
   return (
-    <Animated.View style={[styles.floatingHeart, { transform: [{ translateY }, { scale: anim.interpolate({ inputRange: [0, 0.2], outputRange: [0.5, 1.2] }) }], opacity }]}>
+    <Animated.View style={[styles.floatingHeart, { transform: [{ translateY }, { translateX: randomX }, { scale }], opacity }]}>
       <Heart color="#E1306C" fill="#E1306C" size={40} />
     </Animated.View>
   );
 };
 
-// --- VIEWERS MODAL ---
+// --- 3. VIEWERS MODAL (WITH HEART & PROFILE NAV) ---
 function ViewersModal({ visible, onClose, storyId }: { visible: boolean; onClose: () => void; storyId: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ['story-viewers', storyId],
@@ -90,26 +94,44 @@ function ViewersModal({ visible, onClose, storyId }: { visible: boolean; onClose
     enabled: visible && !!storyId,
   });
   const viewers = data?.viewers || [];
+  
+  const getImageUri = (uri: string) => uri?.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Story Views ({viewers.length})</Text>
-            <TouchableOpacity onPress={onClose}><X color="#fff" size={20} /></TouchableOpacity>
+            <TouchableOpacity onPress={onClose} style={styles.closeModalBtn}>
+              <X color="#fff" size={20} />
+            </TouchableOpacity>
           </View>
-          {isLoading ? <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} /> : (
+          
+          {isLoading ? (
+            <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />
+          ) : (
             <FlatList
               data={viewers}
               keyExtractor={(item) => item.user_id.toString()}
               contentContainerStyle={{ padding: 16 }}
               ListEmptyComponent={<Text style={styles.emptyText}>No views yet.</Text>}
               renderItem={({ item }) => (
-                <View style={styles.viewerItem}>
-                  <Image source={{ uri: item.avatar?.startsWith('http') ? item.avatar : `${MEDIA_BASE_URL}/${item.avatar}` }} style={styles.viewerAvatar} />
-                  <View style={{ flex: 1 }}><Text style={styles.viewerName}>{item.username}</Text><Text style={styles.viewerTime}>{formatTimeAgo(item.viewed_at)}</Text></View>
-                  {item.reaction_type === 'heart' && <Heart size={16} color="#E1306C" fill="#E1306C" />}
-                </View>
+                <TouchableOpacity 
+                  style={styles.viewerItem} 
+                  onPress={() => {
+                    onClose();
+                    router.push({ pathname: '/user/[userId]', params: { userId: item.user_id } });
+                  }}
+                >
+                  <Image source={{ uri: getImageUri(item.avatar) }} style={styles.viewerAvatar} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.viewerName}>{item.username}</Text>
+                    <Text style={styles.viewerTime}>{formatTimeAgo(item.viewed_at)}</Text>
+                  </View>
+                  {/* Show Filled Heart if user reacted */}
+                  {item.reaction_type === 'heart' && <Heart size={18} color="#E1306C" fill="#E1306C" />}
+                </TouchableOpacity>
               )}
             />
           )}
@@ -119,23 +141,25 @@ function ViewersModal({ visible, onClose, storyId }: { visible: boolean; onClose
   );
 }
 
-// --- MAIN SCREEN ---
+// --- 4. MAIN VIEWER SCREEN ---
 export default function StoryViewerScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
 
-  // State
+  // State Management
   const [activeUserIndex, setActiveUserIndex] = useState(0);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [message, setMessage] = useState('');
   const [showViewers, setShowViewers] = useState(false);
+  
   const [hearts, setHearts] = useState<number[]>([]);
-  const [hasLiked, setHasLiked] = useState(false); // 3. Heart Fill State
+  const [hasLiked, setHasLiked] = useState(false);
   
   // Custom Alert State
   const [alertConfig, setAlertConfig] = useState({ visible: false, title: '', message: '', onConfirm: () => {}, isDestructive: false });
@@ -143,9 +167,13 @@ export default function StoryViewerScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const videoRef = useRef<Video>(null);
 
-  // Data Fetching
-  const { data: storiesData, isLoading } = useQuery({ queryKey: ['stories'], queryFn: () => api.stories.getStories() });
+  // Fetch Stories
+  const { data: storiesData, isLoading } = useQuery({ 
+    queryKey: ['stories'], 
+    queryFn: () => api.stories.getStories() 
+  });
 
+  // Group Stories Logic
   const storyGroups = useMemo(() => {
     if (!storiesData?.stories) return [];
     const groups: any[] = [];
@@ -158,6 +186,7 @@ export default function StoryViewerScreen() {
     return groups;
   }, [storiesData]);
 
+  // Set Initial User
   useEffect(() => {
     if (storyGroups.length > 0 && userId) {
       const index = storyGroups.findIndex(g => String(g.userId) === String(userId));
@@ -169,26 +198,43 @@ export default function StoryViewerScreen() {
   const currentStory = currentGroup?.stories[currentStoryIndex];
   const isOwnStory = String(currentGroup?.userId) === String(currentUser?.id);
 
-  // Reset liked state on story change
+  // Sync Like Status when Story Changes
   useEffect(() => {
     if (currentStory) {
-        // Ideally API should tell us if liked, for now defaulting to false on new story unless persisted
-        setHasLiked(false); 
+        // is_liked (1 or 0) comes from index.php
+        setHasLiked(!!currentStory.is_liked);
+        setIsLoaded(false); 
+        progressAnim.setValue(0);
     }
-  }, [currentStory?.id]);
+  }, [currentStory?.id, currentStory?.is_liked]);
 
-  // Mutations
-  const viewMutation = useMutation({ mutationFn: (id: string) => api.stories.view(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stories'] }) });
-  const reactMutation = useMutation({ mutationFn: (id: string) => api.stories.react(id, 'heart') });
+  // --- MUTATIONS ---
+  const viewMutation = useMutation({ 
+    mutationFn: (id: string) => api.stories.view(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stories'] }) 
+  });
+
+  const reactMutation = useMutation({ 
+    mutationFn: (id: string) => api.stories.react(id, 'heart'),
+    onSuccess: (data: any) => {
+        // Toggle Logic from Backend Response
+        if (data.action === 'added') setHasLiked(true);
+        else setHasLiked(false);
+        queryClient.invalidateQueries({ queryKey: ['stories'] });
+    }
+  });
+
   const deleteMutation = useMutation({ 
     mutationFn: (id: string) => api.stories.delete(id), 
     onSuccess: () => { 
         queryClient.invalidateQueries({ queryKey: ['stories'] }); 
         setAlertConfig(prev => ({ ...prev, visible: false }));
+        // Logic: If last story deleted, close viewer, else go next
         if (currentGroup.stories.length === 1) closeViewer(); else advanceStory(); 
     } 
   });
 
+  // Navigation Logic
   const closeViewer = () => router.back();
 
   const advanceStory = useCallback(() => {
@@ -205,27 +251,29 @@ export default function StoryViewerScreen() {
     else setCurrentStoryIndex(0);
   };
 
-  // 1. GESTURE HANDLER (PanResponder)
+  // --- GESTURE CONTROL ---
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10, // Sensitivity
-      onPanResponderGrant: () => setIsPaused(true), // Pause on touch down
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10,
+      onPanResponderGrant: () => setIsPaused(true),
       onPanResponderRelease: (_, gestureState) => {
         setIsPaused(false);
         const { dx, dy } = gestureState;
 
-        // Vertical Swipes (Up/Down)
+        // Vertical Swipe (Up/Down)
         if (Math.abs(dy) > Math.abs(dx)) { 
-            if (dy > 50) { // Swipe Down -> Close
-                closeViewer();
-            } else if (dy < -50 && isOwnStory) { // Swipe Up -> Open Viewers (Only Owner)
+            if (dy > 50) { 
+                // SWIPE DOWN -> CLOSE
+                closeViewer(); 
+            } else if (dy < -50 && isOwnStory) { 
+                // SWIPE UP -> OPEN VIEWERS (Owner only)
                 setShowViewers(true);
             }
         } 
-        // Horizontal Taps/Swipes
+        // Horizontal Tap (Navigation)
         else {
-            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) { // It's a Tap
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) { 
                 const touchX = gestureState.x0;
                 if (touchX < SCREEN_WIDTH * 0.3) previousStory();
                 else advanceStory();
@@ -235,19 +283,28 @@ export default function StoryViewerScreen() {
     })
   ).current;
 
+  // Timer & View Tracking
   useEffect(() => {
-    if (!currentStory || isPaused || !isLoaded || alertConfig.visible) return; // Pause if Alert is open
-    if (!currentStory.is_viewed && !isOwnStory) viewMutation.mutate(currentStory.id);
+    if (!currentStory || isPaused || !isLoaded || alertConfig.visible || showViewers) return;
     
+    // View Logic
+    if (!currentStory.is_viewed && !isOwnStory) {
+        viewMutation.mutate(currentStory.id);
+    }
+    
+    // Progress Logic
     const duration = currentStory.media_type === 'video' ? (currentStory.duration ? currentStory.duration * 1000 : 15000) : 5000;
     Animated.timing(progressAnim, { toValue: 1, duration: duration, useNativeDriver: false }).start(({ finished }) => { if (finished) advanceStory(); });
+    
     return () => progressAnim.stopAnimation();
-  }, [currentStoryIndex, activeUserIndex, isPaused, isLoaded, currentStory, alertConfig.visible]);
+  }, [currentStoryIndex, activeUserIndex, isPaused, isLoaded, currentStory, alertConfig.visible, showViewers]);
 
-  // Handle Interactions
+  // Handlers
   const handleReaction = () => {
-    setHearts(prev => [...prev, Date.now()]);
-    setHasLiked(true); // Fill Heart
+    // Optimistic UI
+    const willLike = !hasLiked;
+    setHasLiked(willLike);
+    if (willLike) setHearts(prev => [...prev, Date.now()]); // Bubble only on Like
     reactMutation.mutate(currentStory.id);
   };
 
@@ -255,8 +312,8 @@ export default function StoryViewerScreen() {
     setIsPaused(true);
     setAlertConfig({
         visible: true,
-        title: 'Delete Story?',
-        message: 'This action cannot be undone.',
+        title: 'Delete Story',
+        message: 'Are you sure you want to delete this story? It cannot be undone.',
         confirmText: 'Delete',
         isDestructive: true,
         onConfirm: () => deleteMutation.mutate(currentStory.id),
@@ -273,22 +330,19 @@ export default function StoryViewerScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {/* GESTURE LAYER */}
+      {/* GESTURE AREA */}
       <View style={styles.gestureArea} {...panResponder.panHandlers}>
-        
-        {/* MEDIA */}
         <View style={styles.mediaContainer}>
           {!isLoaded && <ActivityIndicator size="large" color="#fff" style={styles.loader} />}
           {currentStory.media_type === 'video' ? (
-            <Video ref={videoRef} source={{ uri: getUrl(currentStory.media_url) }} style={styles.media} resizeMode={ResizeMode.COVER} shouldPlay={!isPaused && isLoaded && !alertConfig.visible} isMuted={isMuted} onLoad={() => setIsLoaded(true)} />
+            <Video ref={videoRef} source={{ uri: getUrl(currentStory.media_url) }} style={styles.media} resizeMode={ResizeMode.COVER} shouldPlay={!isPaused && isLoaded && !alertConfig.visible && !showViewers} isMuted={isMuted} onLoad={() => setIsLoaded(true)} />
           ) : (
             <Image source={{ uri: getUrl(currentStory.media_url) }} style={styles.media} contentFit="cover" onLoad={() => setIsLoaded(true)} />
           )}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomGradient} />
         </View>
 
-        {/* OVERLAY */}
-        {!isPaused && !alertConfig.visible && (
+        {!isPaused && !alertConfig.visible && !showViewers && (
           <View style={[styles.overlay, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 }]}>
             <View style={styles.topSection}>
               <View style={styles.progressContainer}>
@@ -319,7 +373,9 @@ export default function StoryViewerScreen() {
               <View style={styles.heartsContainer} pointerEvents="none">
                  {hearts.map(id => <FloatingHeart key={id} onComplete={() => setHearts(prev => prev.filter(h => h !== id))} />)}
               </View>
+              
               {currentStory.caption ? (<View style={styles.captionContainer}><Text style={styles.captionText}>{currentStory.caption}</Text></View>) : null}
+              
               {isOwnStory ? (
                   <TouchableOpacity style={styles.viewsPill} onPress={() => { setIsPaused(true); setShowViewers(true); }}>
                       <Eye color="#fff" size={18} />
@@ -332,7 +388,7 @@ export default function StoryViewerScreen() {
                           {message.length > 0 && <TouchableOpacity><Send color="#3B82F6" size={20} /></TouchableOpacity>}
                       </View>
                       <TouchableOpacity style={styles.heartBtn} onPress={handleReaction}>
-                          {/* FILL HEART IF LIKED */}
+                          {/* FILL HEART LOGIC */}
                           <Heart color={hasLiked ? "#E1306C" : "#fff"} fill={hasLiked ? "#E1306C" : "transparent"} size={28} />
                       </TouchableOpacity>
                   </View>
@@ -343,18 +399,7 @@ export default function StoryViewerScreen() {
       </View>
 
       <ViewersModal visible={showViewers} storyId={currentStory.id} onClose={() => { setShowViewers(false); setIsPaused(false); }} />
-      
-      {/* 2. CUSTOM ALERT COMPONENT RENDER */}
-      <CustomAlert 
-        visible={alertConfig.visible}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        confirmText={alertConfig.confirmText}
-        isDestructive={alertConfig.isDestructive}
-        onConfirm={alertConfig.onConfirm}
-        onCancel={alertConfig.onCancel}
-      />
-
+      <CustomAlert visible={alertConfig.visible} title={alertConfig.title} message={alertConfig.message} confirmText={alertConfig.confirmText} isDestructive={alertConfig.isDestructive} onConfirm={alertConfig.onConfirm} onCancel={alertConfig.onCancel} />
     </KeyboardAvoidingView>
   );
 }
@@ -410,5 +455,5 @@ const styles = StyleSheet.create({
   alertBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
   alertBtnConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
   alertBtnTextCancel: { color: '#fff', fontWeight: '600' },
-  alertBtnTextConfirm: { color: '#4DA6FF', fontWeight: '600' }
+  alertBtnTextConfirm: { color: '#E1306C', fontWeight: '600' } // Theme Pink
 });
