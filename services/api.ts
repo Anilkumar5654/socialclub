@@ -201,7 +201,7 @@ class ApiClient {
     getPost: async (id: string) => this.request<{ post: any }>(`/posts/details?id=${id}`),
     create: async (formData: FormData) => this.request('/posts/create', { method: 'POST', body: formData }),
     
-    // DELETE POST: Sends ID in Query AND Body for maximum compatibility
+    // DELETE POST
     delete: async (id: string) => {
       return this.request(`/posts/action/delete.php?id=${id}`, { 
         method: 'POST', 
@@ -221,15 +221,23 @@ class ApiClient {
       });
     },
 
-    // COMMENTS
+    // ------------------------------------------------------------------
+    // FIXED: Comment Post (Action) aur Get Comments (Fetch) alag kar diye
+    // ------------------------------------------------------------------
+    
+    // 1. Comment POST karna (Action Folder)
     comment: async (id: string, content: string) => {
       return this.request<{ comment: any }>('/posts/action/comment.php', {
         method: 'POST', body: JSON.stringify({ post_id: id, content }),
       });
     },
+
+    // 2. Comments FETCH karna (Direct comments.php se)
     getComments: async (id: string, page: number = 1) => {
-      return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/action/comment.php?post_id=${id}&page=${page}`);
+      // FIX: Changed from /posts/action/comment.php to /posts/comments.php
+      return this.request<{ comments: any[]; hasMore: boolean }>(`/posts/comments.php?post_id=${id}&page=${page}`);
     },
+
     // DELETE COMMENT
     deleteComment: async (commentId: string) => {
       return this.request(`/posts/action/comment.php?comment_id=${commentId}`, { method: 'DELETE' });
