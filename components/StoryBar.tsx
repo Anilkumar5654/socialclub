@@ -5,27 +5,28 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { useQuery } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
-import { formatTimeAgo } from '@/constants/timeFormat';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, MEDIA_BASE_URL } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
 // ----------------------------------------------------------------
-// StoryBar Component Logic
+// StoryBar Component (Updated Paths)
 // ----------------------------------------------------------------
 
 export default function StoryBar() {
   const { user: currentUser } = useAuth();
+  
+  // Fetch Stories
   const { data: storiesData, isLoading } = useQuery({
     queryKey: ['stories'],
     queryFn: () => api.stories.getStories(),
   });
 
+  // Logic to Group and Sort Stories (Same as before)
   const stories = useMemo(() => {
     if (!storiesData?.stories) return [];
     
-    // Grouping stories by user and sorting logic (kept as is)
     const groupedStories: { [key: string]: any } = {};
     
     storiesData.stories.forEach((story: any) => {
@@ -80,12 +81,16 @@ export default function StoryBar() {
     return [...unwatchedStories, ...watchedStories];
   }, [storiesData, currentUser]);
 
+  // --- UPDATED NAVIGATION PATHS ---
+  
   const handleStoryPress = (userId: string) => {
-    router.push({ pathname: '/story-viewer', params: { userId } });
+    // Path changed from '/story-viewer' to '/stories/viewer'
+    router.push({ pathname: '/stories/viewer', params: { userId } });
   };
 
   const handleYourStoryPress = () => {
-    router.push('/story-upload');
+    // Path changed from '/story-upload' to '/stories/upload'
+    router.push('/stories/upload');
   };
 
   const getImageUri = (uri: string) => {
@@ -106,7 +111,7 @@ export default function StoryBar() {
   return (
     <View style={styles.storyBar}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {/* Your Story Button (if not already present in stories array) */}
+        {/* Your Story Button */}
         {!hasCurrentUserStory && (
           <TouchableOpacity 
             style={styles.storyItem}
@@ -127,7 +132,7 @@ export default function StoryBar() {
           </TouchableOpacity>
         )}
         
-        {/* Other Stories */}
+        {/* Story List */}
         {stories.map((storyGroup: any) => {
           const isYourStory = storyGroup.userId === currentUser?.id;
           return (
@@ -160,10 +165,6 @@ export default function StoryBar() {
     </View>
   );
 }
-
-// ----------------------------------------------------------------
-// StoryBar Styles (Extracted from previous HomeScreen styles)
-// ----------------------------------------------------------------
 
 const styles = StyleSheet.create({
   storyBar: {
@@ -213,7 +214,7 @@ const styles = StyleSheet.create({
   addStoryText: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '700' as const,
+    fontWeight: '700',
     lineHeight: 14,
   },
   storyUsername: {
