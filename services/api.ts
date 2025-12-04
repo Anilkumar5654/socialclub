@@ -181,33 +181,34 @@ class ApiClient {
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
   };
 
-  // --- STORY SYSTEM API (Confirmed & Synced) ---
+  // --- STORIES MODULE (UPDATED & FINAL) ---
   stories = {
-    // Fetches ALL stories (index.php)
+    // 1. Get Stories (index.php) - Returns stories with is_liked & is_viewed status
     getStories: async () => this.request<{ stories: any[] }>('/stories'),
     
-    // Optional: Fetches user specific stories (if you create user.php later)
+    // 2. Get User Specific Stories
     getUserStories: async (userId: string) => this.request<{ stories: any[] }>(`/stories/user?user_id=${userId}`),
     
-    // Viewers List (viewers.php)
+    // 3. Viewers List (viewers.php) - Returns viewers + reaction type
     getViewers: async (storyId: string) => this.request<{ viewers: any[] }>(`/stories/viewers?story_id=${storyId}`),
     
-    // React/Heart (react.php)
+    // 4. React (react.php) - Handles Like/Unlike Toggle
     react: async (storyId: string, reactionType: 'heart' | 'like') => {
-      return this.request(`/stories/react`, {
-        method: 'POST', body: JSON.stringify({ story_id: storyId, reaction_type: reactionType }),
+      return this.request<{ success: boolean; action: 'added' | 'removed'; message: string }>(`/stories/react`, {
+        method: 'POST', 
+        body: JSON.stringify({ story_id: storyId, reaction_type: reactionType }),
       });
     },
     
-    // Upload Story (upload.php)
+    // 5. Upload Story (upload.php) - Handles Image/Video + Caption + Duration
     upload: async (formData: FormData) => this.request('/stories/upload', { method: 'POST', body: formData }),
     
-    // Track View (view.php)
+    // 6. Track View (view.php) - Increments view count
     view: async (storyId: string) => {
       return this.request(`/stories/view`, { method: 'POST', body: JSON.stringify({ story_id: storyId }) });
     },
     
-    // Delete Story (delete.php)
+    // 7. Delete Story (delete.php) - Deletes file & DB record
     delete: async (storyId: string) => this.request(`/stories/delete?id=${storyId}`, { method: 'DELETE' }),
   };
 
@@ -215,7 +216,6 @@ class ApiClient {
     getPost: async (id: string) => this.request<{ post: any }>(`/posts/details?id=${id}`),
     create: async (formData: FormData) => this.request('/posts/create', { method: 'POST', body: formData }),
     
-    // DELETE POST
     delete: async (id: string) => {
       return this.request(`/posts/action/delete.php?id=${id}`, { 
         method: 'POST', 
@@ -223,7 +223,6 @@ class ApiClient {
       });
     },
     
-    // LIKE / UNLIKE
     like: async (id: string) => {
       return this.request<{ isLiked: boolean; likes: number }>('/posts/action/like.php', {
         method: 'POST', body: JSON.stringify({ post_id: id }),
