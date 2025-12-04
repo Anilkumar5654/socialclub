@@ -1,470 +1,305 @@
-import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import { Image } from 'expo-image';
-import * as Clipboard from 'expo-clipboard';
-import { router, useFocusEffect } from 'expo-router';
-import {
-  Heart,
-  MessageCircle,
-  Share2,
-  Music,
-  Bookmark,
-  Volume2,
-  VolumeX,
-  Play,
-  Eye,
-} from 'lucide-react-native';
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   Dimensions,
+  FlatList,
   TouchableOpacity,
-  Animated,
+  StatusBar,
   ActivityIndicator,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  Share as RNShare,
-  Alert,
-  ScrollView,
-  Pressable,
+  TouchableWithoutFeedback,
+  Animated,
+  Platform
 } from 'react-native';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect, router } from 'expo-router';
+import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import Colors from '@/constants/colors';
-import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { Reel } from '@/types';
 
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BOTTOM_TAB_HEIGHT = Platform.OS === 'ios' ? 80 : 50; 
+const ACTUAL_HEIGHT = SCREEN_HEIGHT - BOTTOM_TAB_HEIGHT;
 
-// --- HELPER: COMMENTS SHEET ---
-function CommentsSheet({ visible, onClose, reelId }: { visible: boolean; onClose: () => void; reelId: string }) {
-  const queryClient = useQueryClient();
-  const [commentText, setCommentText] = useState('');
+// --- SINGLE REEL ITEM ---
+const ReelItem = React.memo(({ item, isActive, index, toggleLike, onDurationUpdate }: { 
+  item: any, 
+  isActive: boolean, 
+  index: number, 
+  toggleLike: (id: string) => void,
+  onDurationUpdate: (id: string, duration: number) => void
+}) => {
   const insets = useSafeAreaInsets();
+  const videoRef = useRef<Video>(null);
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const lastTap = useRef<number | null>(null);
 
-  const { data: commentsData, isLoading, refetch } = useQuery({
-    queryKey: ['reel-comments', reelId],
-    queryFn: () => api.reels.getComments(reelId, 1),
-    enabled: visible,
-  });
-
-  const { mutate: submitComment, isPending } = useMutation({
-    mutationFn: (content: string) => api.reels.comment(reelId, content),
-    onSuccess: () => {
-      setCommentText('');
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ['reels'] });
-    },
-  });
-
-  const getMediaUri = (uri: string | undefined) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" transparent>
-      <View style={styles.modalOverlay}>
-        <KeyboardAvoidingView 
-          style={[styles.commentsContainer, { paddingBottom: insets.bottom }]} 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.commentsHeader}>
-            <Text style={styles.commentsTitle}>Comments</Text>
-            <TouchableOpacity onPress={onClose}><Text style={{color: Colors.primary}}>Close</Text></TouchableOpacity>
-          </View>
-          {isLoading ? <ActivityIndicator style={{flex:1}} color={Colors.primary} /> : (
-            <ScrollView contentContainerStyle={{padding: 16}}>
-              {(commentsData?.comments || []).map((c: any) => (
-                <View key={c.id} style={styles.commentRow}>
-                  <Image source={{ uri: getMediaUri(c.user?.avatar) }} style={styles.commentAvatar} />
-                  <View style={{flex:1}}>
-                    <Text style={styles.commentAuthor}>{c.user?.username}</Text>
-                    <Text style={styles.commentBody}>{c.content}</Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          )}
-          <View style={styles.commentComposer}>
-            <TextInput 
-              style={styles.commentInput} 
-              placeholder="Add a comment..." 
-              placeholderTextColor="#888" 
-              value={commentText} 
-              onChangeText={setCommentText} 
-            />
-            <TouchableOpacity onPress={() => submitComment(commentText.trim())} disabled={!commentText.trim() || isPending}>
-              <Text style={styles.commentSendText}>Post</Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
-  );
-}
-
-// --- MAIN REEL ITEM ---
-
-interface ReelItemProps {
-  reel: Reel;
-  isActive: boolean;
-  isScreenFocused: boolean;
-}
-
-function ReelItem({ reel, isActive, isScreenFocused }: ReelItemProps) {
-  const queryClient = useQueryClient();
-  const videoRef = useRef<ExpoVideo>(null);
-  
-  // Interaction States
-  const [isLiked, setIsLiked] = useState(reel.isLiked);
-  const [likes, setLikes] = useState(reel.likes);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [showPlayIcon, setShowPlayIcon] = useState(false);
-  
-  // --- NEW LOGIC: Channel vs User ---
-  // API returns 'channel' object if user has one
-  const hasChannel = !!reel.channel;
-  
-  // Data Mapping (Prioritize Channel Info)
-  const channelId = reel.channel?.id;
-  const targetId = hasChannel ? reel.channel?.id : reel.user.id;
-  const displayName = hasChannel ? reel.channel?.name : (reel.user?.name || reel.user?.username);
-  
-  const getMediaUri = (uri: string | undefined) => {
-    if (!uri) return '';
-    return uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`;
-  };
-
-  const avatarUrl = getMediaUri(
-    hasChannel ? reel.channel?.avatar : (reel.user?.avatar || 'assets/c_profile.jpg')
-  );
-
-  const videoUrl = getMediaUri(reel.videoUrl || (reel as any).video_url);
-
-  // Subscribe State (API sends 'isSubscribed' which handles both sub/follow logic backend side)
-  const [isSubscribed, setIsSubscribed] = useState(reel.isSubscribed || false);
-
-  // Watch Time Tracking
-  const watchTimeRef = useRef(0);
-  const startTimeRef = useRef(0);
-  const durationRef = useRef(0);
-  const hasTrackedView = useRef(false);
-
-  // Animation
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  // --- PLAYBACK EFFECT ---
+  // Play/Pause Logic
   useEffect(() => {
     if (!videoRef.current) return;
-
-    if (isActive && isScreenFocused) {
+    if (isActive) {
       videoRef.current.playAsync();
-      startTimeRef.current = Date.now();
     } else {
       videoRef.current.pauseAsync();
-      trackViewSession();
+      videoRef.current.setPositionAsync(0); 
     }
-  }, [isActive, isScreenFocused]);
+  }, [isActive]);
 
-  const trackViewSession = async () => {
-    if (!startTimeRef.current || durationRef.current === 0) return;
-    
-    const sessionTime = (Date.now() - startTimeRef.current) / 1000;
-    watchTimeRef.current += sessionTime;
-    startTimeRef.current = 0;
-
-    // Track if watched more than 3 seconds and not tracked yet
-    if (watchTimeRef.current > 3 && !hasTrackedView.current) {
-      const completionRate = Math.min((watchTimeRef.current / durationRef.current) * 100, 100);
-      try {
-        await api.reels.trackView(reel.id, watchTimeRef.current, completionRate);
-        hasTrackedView.current = true;
-      } catch (e) {
-        console.log('[Reel] Tracking failed');
-      }
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    if (lastTap.current && (now - lastTap.current) < 300) {
+      if (!item.is_liked) toggleLike(item.id);
+      animateHeart();
+    } else {
+      lastTap.current = now;
     }
   };
 
-  // --- MUTATIONS ---
-  const { mutate: toggleLike } = useMutation({
-    mutationFn: () => isLiked ? api.reels.unlike(reel.id) : api.reels.like(reel.id),
-    onSuccess: (data) => { setIsLiked(data.isLiked); setLikes(data.likes); }
-  });
-
-  const { mutate: handleSubscribeAction, isPending: subPending } = useMutation({
-    mutationFn: () => {
-      // Dynamic Logic: Channel -> Subscribe API, User -> Follow API
-      if (hasChannel && channelId) {
-        return isSubscribed 
-          ? api.channels.unsubscribe(channelId) 
-          : api.channels.subscribe(channelId);
-      } else {
-        return isSubscribed 
-          ? api.users.unfollow(reel.user.id) 
-          : api.users.follow(reel.user.id); 
-      }
-    },
-    onSuccess: () => {
-      const newState = !isSubscribed;
-      setIsSubscribed(newState);
-    },
-    onError: () => Alert.alert('Error', 'Action failed')
-  });
-
-  const { mutate: shareReel } = useMutation({
-    mutationFn: async () => {
-      const url = `https://www.moviedbr.com/reels/${reel.id}`;
-      await RNShare.share({ message: `Watch this reel: ${url}` });
-      return api.reels.share(reel.id);
-    }
-  });
-
-  // --- HANDLERS ---
-  const onLikePress = () => {
+  const animateHeart = () => {
+    heartScale.setValue(0);
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 1.3, duration: 100, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, friction: 5 }),
+      Animated.timing(heartScale, { toValue: 0, duration: 250, delay: 500, useNativeDriver: true })
     ]).start();
-    toggleLike();
   };
 
-  const handleProfilePress = () => {
-    router.push({ pathname: '/user/[userId]', params: { userId: reel.user.id } });
+  // Get Video Duration for Analytics
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded && status.durationMillis) {
+        // Send duration back to parent once loaded
+        onDurationUpdate(item.id, status.durationMillis / 1000); 
+    }
   };
 
-  // --- SAFE FORMAT COUNT ---
-  const formatCount = (count: any) => {
-    if (count === undefined || count === null) return "0";
-    const num = Number(count);
-    if (isNaN(num)) return "0";
-    
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  };
+  const getUrl = (path: string) => path?.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 
   return (
-    <View style={styles.reelContainer}>
-      <Pressable 
-        style={styles.videoWrapper} 
-        onPress={() => {
-          if (isPlaying) { videoRef.current?.pauseAsync(); setShowPlayIcon(true); }
-          else { videoRef.current?.playAsync(); setShowPlayIcon(false); }
-        }}
-      >
-        <ExpoVideo
-          ref={videoRef}
-          source={{ uri: videoUrl }}
-          style={styles.video}
-          resizeMode={ResizeMode.CONTAIN} // Fit logic
-          isLooping
-          isMuted={isMuted}
-          shouldPlay={isActive && isScreenFocused}
-          onPlaybackStatusUpdate={status => {
-            if (status.isLoaded) {
-              setIsPlaying(status.isPlaying);
-              if (status.durationMillis) durationRef.current = status.durationMillis / 1000;
-            }
-          }}
-        />
-        {showPlayIcon && !isPlaying && (
-          <View style={styles.centerIcon}><Play size={50} color="white" fill="white" /></View>
-        )}
-      </Pressable>
+    <View style={[styles.reelContainer, { height: ACTUAL_HEIGHT }]}>
+      <TouchableWithoutFeedback onPress={handleDoubleTap}>
+        <View style={styles.videoWrapper}>
+          <Video
+            ref={videoRef}
+            source={{ uri: getUrl(item.video_url) }}
+            style={styles.video}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            shouldPlay={isActive}
+            onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+            posterSource={{ uri: getUrl(item.thumbnail_url) }}
+            posterStyle={{ resizeMode: 'cover' }}
+          />
 
-      {/* Mute Toggle */}
-      <TouchableOpacity style={styles.muteBtn} onPress={() => setIsMuted(!isMuted)}>
-        {isMuted ? <VolumeX color="white" size={20} /> : <Volume2 color="white" size={20} />}
-      </TouchableOpacity>
-
-      {/* --- UI OVERLAY --- */}
-      <View style={styles.uiContainer}>
-        
-        {/* Left Bottom: Info */}
-        <View style={styles.leftCol}>
-          <View style={styles.userRow}>
-            <TouchableOpacity onPress={handleProfilePress}>
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            </TouchableOpacity>
-            
-            <Text style={styles.username} numberOfLines={1}>{displayName}</Text>
-            
-            {/* Dynamic Subscribe/Follow Button */}
-            {!isSubscribed && (
-              <TouchableOpacity 
-                style={styles.subBtn} 
-                onPress={() => handleSubscribeAction()}
-                disabled={subPending}
-              >
-                <Text style={styles.subText}>
-                  {subPending ? '...' : (hasChannel ? 'Subscribe' : 'Follow')}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <Text style={styles.caption} numberOfLines={2}>{reel.caption}</Text>
-          
-          {reel.music && (
-            <View style={styles.musicRow}>
-              <Music size={12} color="white" />
-              <Text style={styles.musicText}>{reel.music.title}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Right Bottom: Actions */}
-        <View style={styles.rightCol}>
-          {/* Like */}
-          <TouchableOpacity style={styles.actionBtn} onPress={onLikePress}>
-            <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-              <Heart size={32} color={isLiked ? Colors.error : "white"} fill={isLiked ? Colors.error : "transparent"} />
+          <View style={styles.centerHeart}>
+            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+              <Heart size={100} color="white" fill="white" style={{ opacity: 0.8 }} />
             </Animated.View>
-            <Text style={styles.actionText}>{formatCount(likes)}</Text>
-          </TouchableOpacity>
-
-          {/* Views */}
-          <View style={styles.actionBtn}>
-            <Eye size={28} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.views)}</Text>
           </View>
 
-          {/* Comments */}
-          <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentsVisible(true)}>
-            <MessageCircle size={30} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.comments)}</Text>
-          </TouchableOpacity>
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} style={styles.gradient} />
 
-          {/* Share */}
-          <TouchableOpacity style={styles.actionBtn} onPress={() => shareReel()}>
-            <Share2 size={28} color="white" />
-            <Text style={styles.actionText}>{formatCount(reel.shares)}</Text>
-          </TouchableOpacity>
+          <View style={[styles.rightActions, { bottom: insets.bottom + 40 }]}>
+            <TouchableOpacity onPress={() => toggleLike(item.id)} style={styles.actionBtn}>
+              <Heart size={32} color={item.is_liked ? "#E1306C" : "#fff"} fill={item.is_liked ? "#E1306C" : "transparent"} />
+              <Text style={styles.actionText}>{item.likes_count}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn}>
+              <MessageCircle size={32} color="#fff" />
+              <Text style={styles.actionText}>{item.comments_count}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn}>
+              <Share2 size={30} color="#fff" />
+              <Text style={styles.actionText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn}>
+              <MoreVertical size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
 
-          {/* Music Disc */}
-          <View style={styles.discContainer}>
-            <Image source={{ uri: avatarUrl }} style={styles.discImg} />
+          <View style={[styles.bottomInfo, { bottom: insets.bottom + 10 }]}>
+            <TouchableOpacity style={styles.userInfo} onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: item.user_id } })}>
+              <Image source={{ uri: getUrl(item.avatar) }} style={styles.avatar} />
+              <Text style={styles.username}>{item.username}</Text>
+              {item.is_verified && <View style={styles.verifiedBadge}><Text style={styles.verifiedText}>✓</Text></View>}
+              <TouchableOpacity style={styles.followBtn}><Text style={styles.followText}>Follow</Text></TouchableOpacity>
+            </TouchableOpacity>
+            <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text>
+            <View style={styles.musicRow}>
+              <Music2 size={14} color="#fff" />
+              <Text style={styles.musicText}>Original Audio</Text>
+            </View>
           </View>
         </View>
-      </View>
-
-      <CommentsSheet visible={commentsVisible} onClose={() => setCommentsVisible(false)} reelId={reel.id} />
+      </TouchableWithoutFeedback>
     </View>
   );
-}
+});
 
-// --- REELS SCREEN ---
-
+// --- MAIN SCREEN ---
 export default function ReelsScreen() {
-  const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const [page, setPage] = useState(1);
+  const startTimeRef = useRef<number>(Date.now());
+  const durationsRef = useRef<{[key: string]: number}>({}); // Store durations
+  
+  const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
 
-  // Tab switching detection
-  useFocusEffect(
-    useCallback(() => {
-      setIsScreenFocused(true);
-      return () => setIsScreenFocused(false);
-    }, [])
-  );
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['reels-feed'],
-    queryFn: async () => api.reels.getReels(1, 20),
+  // 1. Fetch Reels
+  const { data, isLoading, isRefetching, refetch } = useQuery({
+    queryKey: ['reels-feed', page],
+    queryFn: () => api.reels.getReels(page, 5),
+    staleTime: 5 * 60 * 1000, // 5 mins
   });
 
+  // Flatten pages (Simple logic for now, ideally use useInfiniteQuery)
   const reels = data?.reels || [];
 
-  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
-    if (viewableItems.length > 0 && viewableItems[0].index !== null) {
-      setActiveIndex(viewableItems[0].index);
+  // 2. Pause on Blur
+  useFocusEffect(
+    useCallback(() => {
+      // Screen Active
+      startTimeRef.current = Date.now();
+      return () => {
+        // Screen Inactive - Track view for current item
+        trackCurrentView(activeIndex, reels);
+      };
+    }, [activeIndex, reels]) // Add dependencies
+  );
+
+  // 3. Analytics Tracking Logic
+  const trackCurrentView = (index: number, reelList: any[]) => {
+    const reel = reelList[index];
+    if (!reel) return;
+
+    const endTime = Date.now();
+    const watchDuration = (endTime - startTimeRef.current) / 1000; // Seconds
+    const totalDuration = durationsRef.current[reel.id] || 0;
+
+    if (watchDuration > 1) {
+        // Send to Backend
+        api.reels.trackView(reel.id, watchDuration, totalDuration);
+        // console.log(`Tracked: ${reel.id}, Watched: ${watchDuration}s, Total: ${totalDuration}s`);
     }
+    
+    // Reset for next
+    startTimeRef.current = Date.now();
+  };
+
+  // 4. Like Mutation
+  const likeMutation = useMutation({
+    mutationFn: (reelId: string) => {
+      const reel = reels.find((r: any) => r.id === reelId);
+      return reel?.is_liked ? api.reels.unlike(reelId) : api.reels.like(reelId);
+    },
+    onSuccess: (data, reelId) => {
+      queryClient.setQueryData(['reels-feed', page], (oldData: any) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          reels: oldData.reels.map((r: any) => {
+            if (r.id === reelId) {
+              const wasLiked = r.is_liked;
+              return { ...r, is_liked: !wasLiked, likes_count: wasLiked ? r.likes_count - 1 : r.likes_count + 1 };
+            }
+            return r;
+          })
+        };
+      });
+    }
+  });
+
+  // 5. Viewability Handler
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
+    if (viewableItems.length > 0) {
+      const newIndex = viewableItems[0].index ?? 0;
+      
+      // Track PREVIOUS video view before switching
+      if (newIndex !== activeIndex) {
+         trackCurrentView(activeIndex, reels);
+      }
+      
+      setActiveIndex(newIndex);
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
+
+  // Store Duration Handler
+  const handleDurationUpdate = useCallback((id: string, duration: number) => {
+      durationsRef.current[id] = duration;
   }, []);
+
+  if (isLoading && page === 1) {
+    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /></View>;
+  }
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Text style={styles.headerText}>Reels</Text>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      <View style={[styles.header, { top: insets.top + 10 }]}>
+        <Text style={styles.headerTitle}>Reels</Text>
+        <TouchableOpacity><Camera size={26} color="#fff" /></TouchableOpacity>
       </View>
 
-      {isLoading ? (
-        <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /></View>
-      ) : (
-        <FlatList
-          data={reels}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item, index }) => (
-            <ReelItem 
-              reel={item} 
-              isActive={index === activeIndex} 
-              isScreenFocused={isScreenFocused} 
-            />
-          )}
-          pagingEnabled
-          showsVerticalScrollIndicator={false}
-          snapToInterval={SCREEN_HEIGHT}
-          decelerationRate="fast"
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
-          removeClippedSubviews
-          windowSize={3}
-          initialNumToRender={1}
-          maxToRenderPerBatch={2}
-        />
-      )}
+      <FlatList
+        data={reels}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item, index }) => (
+          <ReelItem 
+            item={item} 
+            index={index} 
+            isActive={index === activeIndex} 
+            toggleLike={(id) => likeMutation.mutate(id)}
+            onDurationUpdate={handleDurationUpdate}
+          />
+        )}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ACTUAL_HEIGHT}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        getItemLayout={(data, index) => ({ length: ACTUAL_HEIGHT, offset: ACTUAL_HEIGHT * index, index })}
+        onEndReached={() => {
+            if (data?.hasMore) setPage(p => p + 1);
+        }}
+        onEndReachedThreshold={2} // Preload next page
+        ListEmptyComponent={<View style={[styles.loadingContainer, { height: ACTUAL_HEIGHT }]}><Text style={{ color: '#fff' }}>No Reels found</Text></View>}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'black' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { position: 'absolute', top: 0, left: 20, zIndex: 10 },
-  headerText: { color: 'white', fontSize: 24, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 5 },
-  
-  reelContainer: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, position: 'relative' },
-  videoWrapper: { flex: 1, justifyContent: 'center', backgroundColor: 'black' },
+  container: { flex: 1, backgroundColor: '#000' },
+  loadingContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  header: { position: 'absolute', left: 0, right: 0, zIndex: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  reelContainer: { width: SCREEN_WIDTH, backgroundColor: '#000', position: 'relative' },
+  videoWrapper: { flex: 1, backgroundColor: '#121212' },
   video: { width: '100%', height: '100%' },
-  centerIcon: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
-  muteBtn: { position: 'absolute', top: 100, right: 20, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, zIndex: 15 },
-
-  uiContainer: { position: 'absolute', bottom: 20, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 20 : 10 },
-  
-  leftCol: { flex: 1, paddingRight: 60, marginBottom: 10 },
-  userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'white', marginRight: 10 },
-  username: { color: 'white', fontWeight: 'bold', fontSize: 16, marginRight: 10, maxWidth: 120 },
-  subBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'white', backgroundColor: 'rgba(0,0,0,0.3)' },
-  subText: { color: 'white', fontSize: 12, fontWeight: '600' },
-  caption: { color: 'white', fontSize: 14, marginBottom: 10, textShadowColor: 'black', textShadowRadius: 1 },
-  musicRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
-  musicText: { color: 'white', fontSize: 12, marginLeft: 5 },
-
-  rightCol: { alignItems: 'center', gap: 20, paddingBottom: 20 },
+  gradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 300 },
+  centerHeart: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5 },
+  rightActions: { position: 'absolute', right: 10, zIndex: 20, alignItems: 'center', gap: 20 },
   actionBtn: { alignItems: 'center' },
-  actionText: { color: 'white', fontSize: 13, fontWeight: 'bold', marginTop: 4 },
-  discContainer: { width: 45, height: 45, borderRadius: 25, backgroundColor: '#222', borderWidth: 2, borderColor: '#333', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
-  discImg: { width: 30, height: 30, borderRadius: 15 },
-
-  // Comments Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  commentsContainer: { height: '70%', backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#333' },
-  commentsTitle: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-  commentRow: { flexDirection: 'row', marginBottom: 15 },
-  commentAvatar: { width: 32, height: 32, borderRadius: 16, marginRight: 10 },
-  commentAuthor: { color: '#ccc', fontSize: 12, fontWeight: 'bold' },
-  commentBody: { color: 'white', fontSize: 14 },
-  commentComposer: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#333' },
-  commentInput: { flex: 1, backgroundColor: '#333', borderRadius: 20, paddingHorizontal: 15, color: 'white', marginRight: 10, height: 40 },
-  commentSendText: { color: Colors.primary, fontWeight: 'bold', marginTop: 10 },
+  actionText: { color: '#fff', marginTop: 6, fontSize: 13, fontWeight: '600' },
+  bottomInfo: { position: 'absolute', left: 16, right: 80, zIndex: 20 },
+  userInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#fff', marginRight: 10 },
+  username: { color: '#fff', fontWeight: '700', fontSize: 16, marginRight: 6 },
+  verifiedBadge: { backgroundColor: Colors.primary, borderRadius: 10, width: 14, height: 14, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  verifiedText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
+  followBtn: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  followText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  caption: { color: '#fff', fontSize: 14, lineHeight: 20, marginBottom: 10 },
+  musicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  musicText: { color: '#fff', fontSize: 13 },
 });
