@@ -14,7 +14,7 @@ import {
   Pressable,
   Platform,
   KeyboardAvoidingView,
-  TouchableWithoutFeedback,
+  PanResponder,
   Easing
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -32,26 +32,51 @@ import { api, MEDIA_BASE_URL } from '@/services/api';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// --- FLOATING HEART ANIMATION COMPONENT ---
+// --- 1. CUSTOM DARK ALERT COMPONENT ---
+interface CustomAlertProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmText?: string;
+  isDestructive?: boolean;
+}
+
+const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText = 'Confirm', isDestructive = false }: CustomAlertProps) => {
+  if (!visible) return null;
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertBox}>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <View style={styles.alertButtons}>
+            <TouchableOpacity onPress={onCancel} style={styles.alertBtnCancel}>
+              <Text style={styles.alertBtnTextCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onConfirm} style={styles.alertBtnConfirm}>
+              <Text style={[styles.alertBtnTextConfirm, isDestructive && { color: '#FF4444' }]}>{confirmText}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// --- FLOATING HEART ANIMATION ---
 const FloatingHeart = ({ onComplete }: { onComplete: () => void }) => {
   const anim = useRef(new Animated.Value(0)).current;
-  
   useEffect(() => {
     Animated.timing(anim, {
-      toValue: 1,
-      duration: 1000,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: true,
+      toValue: 1, duration: 1000, easing: Easing.out(Easing.ease), useNativeDriver: true,
     }).start(() => onComplete());
   }, []);
-
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -200] });
   const opacity = anim.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 1, 0] });
-  const scale = anim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0.5, 1.2, 1] });
-  const randomX = Math.random() * 40 - 20; // Random spread
-
   return (
-    <Animated.View style={[styles.floatingHeart, { transform: [{ translateY }, { translateX: randomX }, { scale }], opacity }]}>
+    <Animated.View style={[styles.floatingHeart, { transform: [{ translateY }, { scale: anim.interpolate({ inputRange: [0, 0.2], outputRange: [0.5, 1.2] }) }], opacity }]}>
       <Heart color="#E1306C" fill="#E1306C" size={40} />
     </Animated.View>
   );
@@ -64,22 +89,16 @@ function ViewersModal({ visible, onClose, storyId }: { visible: boolean; onClose
     queryFn: () => api.stories.getViewers(storyId),
     enabled: visible && !!storyId,
   });
-
   const viewers = data?.viewers || [];
-
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Story Views ({viewers.length})</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeModalBtn}>
-              <X color="#000" size={20} />
-            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose}><X color="#fff" size={20} /></TouchableOpacity>
           </View>
-          {isLoading ? (
-            <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />
-          ) : (
+          {isLoading ? <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} /> : (
             <FlatList
               data={viewers}
               keyExtractor={(item) => item.user_id.toString()}
@@ -88,10 +107,7 @@ function ViewersModal({ visible, onClose, storyId }: { visible: boolean; onClose
               renderItem={({ item }) => (
                 <View style={styles.viewerItem}>
                   <Image source={{ uri: item.avatar?.startsWith('http') ? item.avatar : `${MEDIA_BASE_URL}/${item.avatar}` }} style={styles.viewerAvatar} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.viewerName}>{item.username}</Text>
-                    <Text style={styles.viewerTime}>{formatTimeAgo(item.viewed_at)}</Text>
-                  </View>
+                  <View style={{ flex: 1 }}><Text style={styles.viewerName}>{item.username}</Text><Text style={styles.viewerTime}>{formatTimeAgo(item.viewed_at)}</Text></View>
                   {item.reaction_type === 'heart' && <Heart size={16} color="#E1306C" fill="#E1306C" />}
                 </View>
               )}
@@ -110,6 +126,7 @@ export default function StoryViewerScreen() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
 
+  // State
   const [activeUserIndex, setActiveUserIndex] = useState(0);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -117,16 +134,17 @@ export default function StoryViewerScreen() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [message, setMessage] = useState('');
   const [showViewers, setShowViewers] = useState(false);
-  const [hearts, setHearts] = useState<number[]>([]); // For Animation
+  const [hearts, setHearts] = useState<number[]>([]);
+  const [hasLiked, setHasLiked] = useState(false); // 3. Heart Fill State
+  
+  // Custom Alert State
+  const [alertConfig, setAlertConfig] = useState({ visible: false, title: '', message: '', onConfirm: () => {}, isDestructive: false });
 
   const progressAnim = useRef(new Animated.Value(0)).current;
   const videoRef = useRef<Video>(null);
 
-  // FETCH STORIES
-  const { data: storiesData, isLoading } = useQuery({
-    queryKey: ['stories'],
-    queryFn: () => api.stories.getStories(),
-  });
+  // Data Fetching
+  const { data: storiesData, isLoading } = useQuery({ queryKey: ['stories'], queryFn: () => api.stories.getStories() });
 
   const storyGroups = useMemo(() => {
     if (!storiesData?.stories) return [];
@@ -134,10 +152,7 @@ export default function StoryViewerScreen() {
     const map = new Map();
     storiesData.stories.forEach((story: any) => {
       const uid = story.user?.id || story.user_id;
-      if (!map.has(uid)) {
-        map.set(uid, { userId: uid, user: story.user, stories: [] });
-        groups.push(map.get(uid));
-      }
+      if (!map.has(uid)) { map.set(uid, { userId: uid, user: story.user, stories: [] }); groups.push(map.get(uid)); }
       map.get(uid).stories.push(story);
     });
     return groups;
@@ -152,224 +167,194 @@ export default function StoryViewerScreen() {
 
   const currentGroup = storyGroups[activeUserIndex];
   const currentStory = currentGroup?.stories[currentStoryIndex];
-  // FIX: Robust Ownership Check
   const isOwnStory = String(currentGroup?.userId) === String(currentUser?.id);
 
-  // --- ACTIONS ---
-  const viewMutation = useMutation({
-    mutationFn: (id: string) => api.stories.view(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stories'] })
-  });
-
-  const reactMutation = useMutation({
-    mutationFn: (id: string) => api.stories.react(id, 'heart'),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.stories.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stories'] });
-      if (currentGroup.stories.length === 1) closeViewer();
-      else advanceStory();
+  // Reset liked state on story change
+  useEffect(() => {
+    if (currentStory) {
+        // Ideally API should tell us if liked, for now defaulting to false on new story unless persisted
+        setHasLiked(false); 
     }
+  }, [currentStory?.id]);
+
+  // Mutations
+  const viewMutation = useMutation({ mutationFn: (id: string) => api.stories.view(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stories'] }) });
+  const reactMutation = useMutation({ mutationFn: (id: string) => api.stories.react(id, 'heart') });
+  const deleteMutation = useMutation({ 
+    mutationFn: (id: string) => api.stories.delete(id), 
+    onSuccess: () => { 
+        queryClient.invalidateQueries({ queryKey: ['stories'] }); 
+        setAlertConfig(prev => ({ ...prev, visible: false }));
+        if (currentGroup.stories.length === 1) closeViewer(); else advanceStory(); 
+    } 
   });
 
-  // --- NAVIGATION ---
   const closeViewer = () => router.back();
 
   const advanceStory = useCallback(() => {
-    progressAnim.setValue(0);
-    setIsLoaded(false);
-    if (currentStoryIndex < currentGroup.stories.length - 1) {
-      setCurrentStoryIndex(prev => prev + 1);
-    } else {
-      if (activeUserIndex < storyGroups.length - 1) {
-        setActiveUserIndex(prev => prev + 1);
-        setCurrentStoryIndex(0);
-      } else {
-        closeViewer();
-      }
-    }
+    progressAnim.setValue(0); setIsLoaded(false);
+    if (currentStoryIndex < currentGroup.stories.length - 1) setCurrentStoryIndex(prev => prev + 1);
+    else if (activeUserIndex < storyGroups.length - 1) { setActiveUserIndex(prev => prev + 1); setCurrentStoryIndex(0); }
+    else closeViewer();
   }, [currentStoryIndex, currentGroup, activeUserIndex, storyGroups]);
 
   const previousStory = () => {
-    progressAnim.setValue(0);
-    setIsLoaded(false);
-    if (currentStoryIndex > 0) {
-      setCurrentStoryIndex(prev => prev - 1);
-    } else {
-      if (activeUserIndex > 0) {
-        setActiveUserIndex(prev => prev - 1);
-        setCurrentStoryIndex(storyGroups[activeUserIndex - 1].stories.length - 1);
-      } else {
-        setCurrentStoryIndex(0);
-      }
-    }
+    progressAnim.setValue(0); setIsLoaded(false);
+    if (currentStoryIndex > 0) setCurrentStoryIndex(prev => prev - 1);
+    else if (activeUserIndex > 0) { setActiveUserIndex(prev => prev - 1); setCurrentStoryIndex(storyGroups[activeUserIndex - 1].stories.length - 1); }
+    else setCurrentStoryIndex(0);
   };
 
-  // --- PROGRESS & VIEW TRACKING ---
+  // 1. GESTURE HANDLER (PanResponder)
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10, // Sensitivity
+      onPanResponderGrant: () => setIsPaused(true), // Pause on touch down
+      onPanResponderRelease: (_, gestureState) => {
+        setIsPaused(false);
+        const { dx, dy } = gestureState;
+
+        // Vertical Swipes (Up/Down)
+        if (Math.abs(dy) > Math.abs(dx)) { 
+            if (dy > 50) { // Swipe Down -> Close
+                closeViewer();
+            } else if (dy < -50 && isOwnStory) { // Swipe Up -> Open Viewers (Only Owner)
+                setShowViewers(true);
+            }
+        } 
+        // Horizontal Taps/Swipes
+        else {
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) { // It's a Tap
+                const touchX = gestureState.x0;
+                if (touchX < SCREEN_WIDTH * 0.3) previousStory();
+                else advanceStory();
+            }
+        }
+      }
+    })
+  ).current;
+
   useEffect(() => {
-    if (!currentStory || isPaused || !isLoaded) return;
-
-    // FIX: Track View for EVERYONE (except owner locally, but api usually handles it)
-    if (!currentStory.is_viewed && !isOwnStory) {
-      viewMutation.mutate(currentStory.id);
-    }
-
-    const duration = currentStory.media_type === 'video' 
-      ? (currentStory.duration ? currentStory.duration * 1000 : 15000) 
-      : 5000;
-
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: duration,
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (finished) advanceStory();
-    });
-
+    if (!currentStory || isPaused || !isLoaded || alertConfig.visible) return; // Pause if Alert is open
+    if (!currentStory.is_viewed && !isOwnStory) viewMutation.mutate(currentStory.id);
+    
+    const duration = currentStory.media_type === 'video' ? (currentStory.duration ? currentStory.duration * 1000 : 15000) : 5000;
+    Animated.timing(progressAnim, { toValue: 1, duration: duration, useNativeDriver: false }).start(({ finished }) => { if (finished) advanceStory(); });
     return () => progressAnim.stopAnimation();
-  }, [currentStoryIndex, activeUserIndex, isPaused, isLoaded, currentStory]);
+  }, [currentStoryIndex, activeUserIndex, isPaused, isLoaded, currentStory, alertConfig.visible]);
 
-  // --- ANIMATION HANDLER ---
+  // Handle Interactions
   const handleReaction = () => {
-    // 1. Add Heart to State
     setHearts(prev => [...prev, Date.now()]);
-    // 2. Call API
+    setHasLiked(true); // Fill Heart
     reactMutation.mutate(currentStory.id);
   };
 
-  const removeHeart = (id: number) => {
-    setHearts(prev => prev.filter(h => h !== id));
+  const confirmDelete = () => {
+    setIsPaused(true);
+    setAlertConfig({
+        visible: true,
+        title: 'Delete Story?',
+        message: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        isDestructive: true,
+        onConfirm: () => deleteMutation.mutate(currentStory.id),
+        onCancel: () => { setAlertConfig(prev => ({...prev, visible: false})); setIsPaused(false); }
+    });
   };
 
   const getUrl = (path: string) => path?.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 
-  if (isLoading || !currentStory) {
-    return (
-      <View style={styles.blackBg}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
-      </View>
-    );
-  }
+  if (isLoading || !currentStory) return <View style={styles.blackBg}><ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} /></View>;
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {/* MEDIA */}
-      <TouchableWithoutFeedback
-        onPressIn={() => setIsPaused(true)}
-        onPressOut={() => setIsPaused(false)}
-        onPress={(evt) => {
-          if (evt.nativeEvent.locationX < SCREEN_WIDTH * 0.3) previousStory();
-          else advanceStory();
-        }}
-      >
+      {/* GESTURE LAYER */}
+      <View style={styles.gestureArea} {...panResponder.panHandlers}>
+        
+        {/* MEDIA */}
         <View style={styles.mediaContainer}>
           {!isLoaded && <ActivityIndicator size="large" color="#fff" style={styles.loader} />}
           {currentStory.media_type === 'video' ? (
-            <Video
-              ref={videoRef}
-              source={{ uri: getUrl(currentStory.media_url) }}
-              style={styles.media}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay={!isPaused && isLoaded}
-              isMuted={isMuted}
-              onLoad={() => setIsLoaded(true)}
-            />
+            <Video ref={videoRef} source={{ uri: getUrl(currentStory.media_url) }} style={styles.media} resizeMode={ResizeMode.COVER} shouldPlay={!isPaused && isLoaded && !alertConfig.visible} isMuted={isMuted} onLoad={() => setIsLoaded(true)} />
           ) : (
-            <Image
-              source={{ uri: getUrl(currentStory.media_url) }}
-              style={styles.media}
-              contentFit="cover"
-              onLoad={() => setIsLoaded(true)}
-            />
+            <Image source={{ uri: getUrl(currentStory.media_url) }} style={styles.media} contentFit="cover" onLoad={() => setIsLoaded(true)} />
           )}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomGradient} />
         </View>
-      </TouchableWithoutFeedback>
 
-      {/* OVERLAY */}
-      {!isPaused && (
-        <View style={[styles.overlay, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 }]}>
-          
-          <View style={styles.topSection}>
-            {/* Progress */}
-            <View style={styles.progressContainer}>
-              {currentGroup.stories.map((story: any, index: number) => (
-                <View key={story.id} style={styles.progressBarBg}>
-                  <Animated.View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: index === currentStoryIndex 
-                          ? progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] })
-                          : index < currentStoryIndex ? '100%' : '0%'
-                      }
-                    ]}
-                  />
-                </View>
-              ))}
-            </View>
-
-            {/* Header */}
-            <View style={styles.headerRow}>
-              <TouchableOpacity style={styles.userInfo} onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: currentGroup.userId } })}>
-                <Image source={{ uri: getUrl(currentGroup.user?.avatar) }} style={styles.avatar} />
-                <View>
-                  <Text style={styles.username}>{currentGroup.user?.username}</Text>
-                  <Text style={styles.timeAgo}>{formatTimeAgo(currentStory.created_at)}</Text>
-                </View>
-              </TouchableOpacity>
-
-              <View style={styles.headerRight}>
-                {isOwnStory && (
-                  <TouchableOpacity onPress={() => { setIsPaused(true); Alert.alert('Delete', 'Sure?', [{text:'Cancel', onPress:()=>setIsPaused(false)},{text:'Delete', onPress:()=>deleteMutation.mutate(currentStory.id)}])}} style={styles.iconBtn}>
-                    <Trash2 color="#fff" size={20} />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity onPress={closeViewer} style={styles.iconBtn}>
-                  <X color="#fff" size={24} />
+        {/* OVERLAY */}
+        {!isPaused && !alertConfig.visible && (
+          <View style={[styles.overlay, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 }]}>
+            <View style={styles.topSection}>
+              <View style={styles.progressContainer}>
+                {currentGroup.stories.map((story: any, index: number) => (
+                  <View key={story.id} style={styles.progressBarBg}>
+                    <Animated.View style={[styles.progressBarFill, { width: index === currentStoryIndex ? progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) : index < currentStoryIndex ? '100%' : '0%' }]} />
+                  </View>
+                ))}
+              </View>
+              <View style={styles.headerRow}>
+                <TouchableOpacity style={styles.userInfo} onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: currentGroup.userId } })}>
+                  <Image source={{ uri: getUrl(currentGroup.user?.avatar) }} style={styles.avatar} />
+                  <View>
+                    <Text style={styles.username}>{currentGroup.user?.username}</Text>
+                    <Text style={styles.timeAgo}>{formatTimeAgo(currentStory.created_at)}</Text>
+                  </View>
                 </TouchableOpacity>
+                <View style={styles.headerRight}>
+                  {isOwnStory && (
+                    <TouchableOpacity onPress={confirmDelete} style={styles.iconBtn}><Trash2 color="#fff" size={20} /></TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={closeViewer} style={styles.iconBtn}><X color="#fff" size={24} /></TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
 
-          {/* Footer */}
-          <View style={styles.footer}>
-            {/* Floating Hearts Animation Container */}
-            <View style={styles.heartsContainer} pointerEvents="none">
-               {hearts.map(id => <FloatingHeart key={id} onComplete={() => removeHeart(id)} />)}
+            <View style={styles.footer}>
+              <View style={styles.heartsContainer} pointerEvents="none">
+                 {hearts.map(id => <FloatingHeart key={id} onComplete={() => setHearts(prev => prev.filter(h => h !== id))} />)}
+              </View>
+              {currentStory.caption ? (<View style={styles.captionContainer}><Text style={styles.captionText}>{currentStory.caption}</Text></View>) : null}
+              {isOwnStory ? (
+                  <TouchableOpacity style={styles.viewsPill} onPress={() => { setIsPaused(true); setShowViewers(true); }}>
+                      <Eye color="#fff" size={18} />
+                      <Text style={styles.viewsText}>{currentStory.views_count || 0} Views (Swipe Up)</Text>
+                  </TouchableOpacity>
+              ) : (
+                  <View style={styles.replyRow}>
+                      <View style={styles.inputPill}>
+                          <TextInput placeholder="Send message..." placeholderTextColor="rgba(255,255,255,0.7)" style={styles.input} value={message} onChangeText={setMessage} onFocus={() => setIsPaused(true)} onBlur={() => setIsPaused(false)} />
+                          {message.length > 0 && <TouchableOpacity><Send color="#3B82F6" size={20} /></TouchableOpacity>}
+                      </View>
+                      <TouchableOpacity style={styles.heartBtn} onPress={handleReaction}>
+                          {/* FILL HEART IF LIKED */}
+                          <Heart color={hasLiked ? "#E1306C" : "#fff"} fill={hasLiked ? "#E1306C" : "transparent"} size={28} />
+                      </TouchableOpacity>
+                  </View>
+              )}
             </View>
-
-            {currentStory.caption ? (
-                <View style={styles.captionContainer}><Text style={styles.captionText}>{currentStory.caption}</Text></View>
-            ) : null}
-
-            {isOwnStory ? (
-                <TouchableOpacity style={styles.viewsPill} onPress={() => { setIsPaused(true); setShowViewers(true); }}>
-                    <Eye color="#fff" size={18} />
-                    <Text style={styles.viewsText}>{currentStory.views_count || 0} Views</Text>
-                </TouchableOpacity>
-            ) : (
-                <View style={styles.replyRow}>
-                    <View style={styles.inputPill}>
-                        <TextInput placeholder="Send message..." placeholderTextColor="rgba(255,255,255,0.7)" style={styles.input} value={message} onChangeText={setMessage} onFocus={() => setIsPaused(true)} onBlur={() => setIsPaused(false)} />
-                        {message.length > 0 && <TouchableOpacity><Send color="#3B82F6" size={20} /></TouchableOpacity>}
-                    </View>
-                    <TouchableOpacity style={styles.heartBtn} onPress={handleReaction}>
-                        <Heart color="#fff" size={24} />
-                    </TouchableOpacity>
-                </View>
-            )}
           </View>
-        </View>
-      )}
+        )}
+      </View>
 
       <ViewersModal visible={showViewers} storyId={currentStory.id} onClose={() => { setShowViewers(false); setIsPaused(false); }} />
+      
+      {/* 2. CUSTOM ALERT COMPONENT RENDER */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        confirmText={alertConfig.confirmText}
+        isDestructive={alertConfig.isDestructive}
+        onConfirm={alertConfig.onConfirm}
+        onCancel={alertConfig.onCancel}
+      />
+
     </KeyboardAvoidingView>
   );
 }
@@ -377,6 +362,7 @@ export default function StoryViewerScreen() {
 const styles = StyleSheet.create({
   blackBg: { flex: 1, backgroundColor: '#000' },
   container: { flex: 1, backgroundColor: '#000' },
+  gestureArea: { flex: 1 },
   mediaContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', justifyContent: 'center' },
   media: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT },
   loader: { position: 'absolute', alignSelf: 'center', zIndex: 1 },
@@ -414,4 +400,15 @@ const styles = StyleSheet.create({
   viewerTime: { color: '#888', fontSize: 12 },
   heartsContainer: { position: 'absolute', bottom: 60, right: 20, width: 50, height: 300, zIndex: 99 },
   floatingHeart: { position: 'absolute', bottom: 0 },
+  
+  // Custom Alert Styles
+  alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+  alertBox: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+  alertTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 },
+  alertMessage: { color: '#AAA', fontSize: 14, textAlign: 'center', marginBottom: 20 },
+  alertButtons: { flexDirection: 'row', gap: 12, width: '100%' },
+  alertBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
+  alertBtnConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
+  alertBtnTextCancel: { color: '#fff', fontWeight: '600' },
+  alertBtnTextConfirm: { color: '#4DA6FF', fontWeight: '600' }
 });
