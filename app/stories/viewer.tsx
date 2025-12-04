@@ -18,12 +18,12 @@ import {
   TouchableWithoutFeedback
 } from 'react-native';
 import { Image } from 'expo-image';
-import { Video, ResizeMode, Audio } from 'expo-av';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Video, ResizeMode } from 'expo-av';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Heart, Send, MoreVertical, Pause, Play, Volume2, VolumeX, Eye, Trash2, ChevronLeft } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient'; // Install: npx expo install expo-linear-gradient
+import { X, Heart, Send, MoreVertical, Pause, Play, Volume2, VolumeX, Eye, Trash2 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -89,8 +89,6 @@ export default function StoryViewerScreen() {
   // --- STATE ---
   const [activeUserIndex, setActiveUserIndex] = useState(0);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
-  
-  // Controls
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -103,11 +101,10 @@ export default function StoryViewerScreen() {
 
   // --- DATA FETCHING ---
   const { data: storiesData, isLoading } = useQuery({
-    queryKey: ['stories'], // We fetch all stories to allow swiping between users
+    queryKey: ['stories'],
     queryFn: () => api.stories.getStories(),
   });
 
-  // Organize Data: Group stories by User
   const storyGroups = useMemo(() => {
     if (!storiesData?.stories) return [];
     const groups: any[] = [];
@@ -128,20 +125,19 @@ export default function StoryViewerScreen() {
     return groups;
   }, [storiesData]);
 
-  // Set initial user based on param
+  // Initial User Set
   useEffect(() => {
     if (storyGroups.length > 0 && userId) {
       const index = storyGroups.findIndex(g => g.userId.toString() === userId.toString());
       if (index !== -1) setActiveUserIndex(index);
     }
-  }, [userId, storyGroups.length]); // Removed storyGroups from dependency to prevent loop reset
+  }, [userId, storyGroups.length]);
 
-  // Current pointers
   const currentGroup = storyGroups[activeUserIndex];
   const currentStory = currentGroup?.stories[currentStoryIndex];
   const isOwnStory = currentGroup?.userId === currentUser?.id;
 
-  // --- ACTIONS ---
+  // --- MUTATIONS ---
   const viewMutation = useMutation({
     mutationFn: (id: string) => api.stories.view(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stories'] })
@@ -155,33 +151,25 @@ export default function StoryViewerScreen() {
     mutationFn: (id: string) => api.stories.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stories'] });
-      // If deleted last story of user, close or move next
-      if (currentGroup.stories.length === 1) {
-        closeViewer();
-      } else {
-        advanceStory();
-      }
+      if (currentGroup.stories.length === 1) closeViewer();
+      else advanceStory();
     }
   });
 
-  // --- NAVIGATION LOGIC ---
+  // --- NAVIGATION ---
   const closeViewer = () => router.back();
 
   const advanceStory = useCallback(() => {
-    // Reset state for next story
     progressAnim.setValue(0);
     setIsLoaded(false);
-    
     if (currentStoryIndex < currentGroup.stories.length - 1) {
-      // Next Story, Same User
       setCurrentStoryIndex(prev => prev + 1);
     } else {
-      // Next User
       if (activeUserIndex < storyGroups.length - 1) {
         setActiveUserIndex(prev => prev + 1);
         setCurrentStoryIndex(0);
       } else {
-        closeViewer(); // End of all stories
+        closeViewer();
       }
     }
   }, [currentStoryIndex, currentGroup, activeUserIndex, storyGroups]);
@@ -189,83 +177,68 @@ export default function StoryViewerScreen() {
   const previousStory = () => {
     progressAnim.setValue(0);
     setIsLoaded(false);
-
     if (currentStoryIndex > 0) {
       setCurrentStoryIndex(prev => prev - 1);
     } else {
       if (activeUserIndex > 0) {
         setActiveUserIndex(prev => prev - 1);
-        // Go to last story of previous user
         setCurrentStoryIndex(storyGroups[activeUserIndex - 1].stories.length - 1);
       } else {
-        setCurrentStoryIndex(0); // Restart first story
+        setCurrentStoryIndex(0);
       }
     }
   };
 
-  // --- PROGRESS LOGIC ---
+  // --- PROGRESS ---
   useEffect(() => {
     if (!currentStory || isPaused || !isLoaded) return;
 
-    // Mark Viewed
     if (!currentStory.is_viewed && !isOwnStory) {
       viewMutation.mutate(currentStory.id);
     }
 
-    // Timer Logic
     const duration = currentStory.media_type === 'video' 
       ? (currentStory.duration ? currentStory.duration * 1000 : 15000) 
-      : 5000; // 5s for images
+      : 5000;
 
     Animated.timing(progressAnim, {
       toValue: 1,
       duration: duration,
       useNativeDriver: false,
     }).start(({ finished }) => {
-      if (finished) {
-        advanceStory();
-      }
+      if (finished) advanceStory();
     });
 
     return () => progressAnim.stopAnimation();
   }, [currentStoryIndex, activeUserIndex, isPaused, isLoaded, currentStory]);
 
-  // --- HANDLERS ---
-  const handlePressIn = () => setIsPaused(true);
-  const handlePressOut = () => setIsPaused(false);
-  
-  const handleTap = (evt: any) => {
-    const x = evt.nativeEvent.locationX;
-    if (x < SCREEN_WIDTH * 0.3) previousStory();
-    else advanceStory();
-  };
-
-  const handleMediaLoad = () => {
-    setIsLoaded(true);
-  };
-
-  const handleDelete = () => {
-    setIsPaused(true);
-    // Custom Alert logic here or standard Alert
-    deleteMutation.mutate(currentStory.id);
-  };
-
-  // Helper for URL
   const getUrl = (path: string) => path?.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 
   if (isLoading || !currentStory) {
-    return <View style={styles.blackBg}><ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} /></View>;
+    return (
+      <View style={styles.blackBg}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
+      </View>
+    );
   }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="black" hidden />
+      
+      {/* 1. HIDE DEFAULT HEADER */}
+      <Stack.Screen options={{ headerShown: false }} />
+      
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {/* --- MEDIA LAYER --- */}
+      {/* 2. MEDIA DISPLAY (Full Screen) */}
       <TouchableWithoutFeedback
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        onPress={handleTap}
+        onPressIn={() => setIsPaused(true)}
+        onPressOut={() => setIsPaused(false)}
+        onPress={(evt) => {
+          if (evt.nativeEvent.locationX < SCREEN_WIDTH * 0.3) previousStory();
+          else advanceStory();
+        }}
       >
         <View style={styles.mediaContainer}>
           {!isLoaded && <ActivityIndicator size="large" color="#fff" style={styles.loader} />}
@@ -275,39 +248,33 @@ export default function StoryViewerScreen() {
               ref={videoRef}
               source={{ uri: getUrl(currentStory.media_url) }}
               style={styles.media}
-              resizeMode={ResizeMode.COVER}
+              resizeMode={ResizeMode.COVER} // Full Screen Video
               shouldPlay={!isPaused && isLoaded}
               isMuted={isMuted}
-              onLoad={handleMediaLoad}
-              onPlaybackStatusUpdate={(status: any) => {
-                // Optional: Sync progress bar exactly with video position
-              }}
+              onLoad={() => setIsLoaded(true)}
             />
           ) : (
             <Image
               source={{ uri: getUrl(currentStory.media_url) }}
               style={styles.media}
-              contentFit="cover"
-              onLoad={handleMediaLoad}
+              contentFit="cover" // Full Screen Image
+              onLoad={() => setIsLoaded(true)}
             />
           )}
           
-          {/* Dark Gradient at Bottom for Text Visibility */}
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.8)']}
-            style={styles.bottomGradient}
-          />
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomGradient} />
         </View>
       </TouchableWithoutFeedback>
 
-      {/* --- OVERLAY LAYER (Hide on Pause) --- */}
+      {/* 3. OVERLAY UI (Safe Area Logic Here) */}
       {!isPaused && (
         <View style={[styles.overlay, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 }]}>
           
-          {/* 1. PROGRESS BARS */}
-          <View style={styles.progressContainer}>
-            {currentGroup.stories.map((story: any, index: number) => {
-              return (
+          {/* TOP SECTION */}
+          <View style={styles.topSection}>
+            {/* Progress Bars */}
+            <View style={styles.progressContainer}>
+              {currentGroup.stories.map((story: any, index: number) => (
                 <View key={story.id} style={styles.progressBarBg}>
                   <Animated.View
                     style={[
@@ -320,52 +287,39 @@ export default function StoryViewerScreen() {
                     ]}
                   />
                 </View>
-              );
-            })}
-          </View>
+              ))}
+            </View>
 
-          {/* 2. HEADER (Glassmorphism Pill) */}
-          <View style={styles.headerPill}>
-            <TouchableOpacity onPress={() => {
-                // Navigate to Profile
-                router.push({ pathname: '/user/[userId]', params: { userId: currentGroup.userId } });
-            }} style={styles.userInfo}>
-              <Image source={{ uri: getUrl(currentGroup.user?.avatar) }} style={styles.avatar} />
-              <View>
-                <Text style={styles.username}>{currentGroup.user?.username}</Text>
-                <Text style={styles.timeAgo}>{formatTimeAgo(currentStory.created_at)}</Text>
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.headerActions}>
-              {currentStory.media_type === 'video' && (
-                <TouchableOpacity onPress={() => setIsMuted(!isMuted)} style={styles.iconBtn}>
-                  {isMuted ? <VolumeX color="#fff" size={20} /> : <Volume2 color="#fff" size={20} />}
-                </TouchableOpacity>
-              )}
-              
-              {isOwnStory ? (
-                <TouchableOpacity onPress={handleDelete} style={styles.iconBtn}>
-                  <Trash2 color="#FF4444" size={20} />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity onPress={() => {}} style={styles.iconBtn}>
-                  <MoreVertical color="#fff" size={20} />
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity onPress={closeViewer} style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <X color="#fff" size={20} />
+            {/* INSTAGRAM STYLE HEADER (Avatar Left, Close Right) */}
+            <View style={styles.headerRow}>
+              <TouchableOpacity 
+                style={styles.userInfo}
+                onPress={() => router.push({ pathname: '/user/[userId]', params: { userId: currentGroup.userId } })}
+              >
+                <Image source={{ uri: getUrl(currentGroup.user?.avatar) }} style={styles.avatar} />
+                <View>
+                  <Text style={styles.username}>{currentGroup.user?.username}</Text>
+                  <Text style={styles.timeAgo}>{formatTimeAgo(currentStory.created_at)}</Text>
+                </View>
               </TouchableOpacity>
+
+              <View style={styles.headerRight}>
+                {isOwnStory && (
+                  <TouchableOpacity onPress={deleteMutation.mutate.bind(null, currentStory.id)} style={styles.iconBtn}>
+                    <Trash2 color="#fff" size={20} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={closeViewer} style={styles.iconBtn}>
+                  <X color="#fff" size={24} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
-          {/* 3. CENTER (Invisible Taps handled by Parent) */}
-
-          {/* 4. FOOTER & CAPTION */}
+          {/* BOTTOM SECTION */}
           <View style={styles.footer}>
             
-            {/* Caption (If exists) */}
+            {/* Caption in Center */}
             {currentStory.caption ? (
                 <View style={styles.captionContainer}>
                     <Text style={styles.captionText}>{currentStory.caption}</Text>
@@ -374,18 +328,11 @@ export default function StoryViewerScreen() {
 
             {/* Controls */}
             {isOwnStory ? (
-                // OWNER CONTROLS (Views)
                 <TouchableOpacity style={styles.viewsPill} onPress={() => { setIsPaused(true); setShowViewers(true); }}>
                     <Eye color="#fff" size={18} />
                     <Text style={styles.viewsText}>{currentStory.views_count || 0} Views</Text>
-                    <View style={styles.avatarsPreview}>
-                        {/* Fake avatars for effect, replace with real data if available in list */}
-                        <View style={[styles.miniAvatar, { backgroundColor: 'red', right: 0 }]} />
-                        <View style={[styles.miniAvatar, { backgroundColor: 'blue', right: 10 }]} />
-                    </View>
                 </TouchableOpacity>
             ) : (
-                // VIEWER CONTROLS (Reply & Heart)
                 <View style={styles.replyRow}>
                     <View style={styles.inputPill}>
                         <TextInput 
@@ -427,128 +374,62 @@ export default function StoryViewerScreen() {
   );
 }
 
+// --- STYLES ---
 const styles = StyleSheet.create({
   blackBg: { flex: 1, backgroundColor: '#000' },
-  container: { flex: 1, backgroundColor: '#000' },
+  container: { flex: 1, backgroundColor: '#000' }, // Ensure black bg for safe area
   
-  // Media Layer
-  mediaContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center' },
-  media: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, backgroundColor: '#1a1a1a' },
+  // Media
+  mediaContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', justifyContent: 'center' },
+  media: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT },
   loader: { position: 'absolute', alignSelf: 'center', zIndex: 1 },
   bottomGradient: {
-    position: 'absolute',
-    left: 0, right: 0, bottom: 0,
-    height: 150,
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: 150,
   },
 
   // Overlay
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
-  
-  // Progress
-  progressContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 10,
-    gap: 4,
-    marginBottom: 12,
-  },
-  progressBarBg: {
-    flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#fff',
-  },
+  topSection: { paddingHorizontal: 12 },
 
-  // Header Pill (The Unique Design)
-  headerPill: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginHorizontal: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)', // Glass effect
-    borderRadius: 30,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
+  // Progress Bar
+  progressContainer: { flexDirection: 'row', gap: 4, marginBottom: 12 },
+  progressBarBg: { flex: 1, height: 2, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#fff' },
+
+  // Header (Top Left/Right)
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   userInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#fff' },
-  username: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  timeAgo: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  iconBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
-
-  // Footer & Caption
-  footer: { paddingHorizontal: 16, gap: 16 },
+  avatar: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
+  username: { color: '#fff', fontWeight: '700', fontSize: 13, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  timeAgo: { color: 'rgba(255,255,255,0.8)', fontSize: 11, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   
-  captionContainer: {
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  captionText: {
-    color: '#fff',
-    fontSize: 16,
-    textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-    fontWeight: '500',
-  },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  iconBtn: { padding: 4 },
 
-  // Owner Controls (Views Pill)
-  viewsPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 30,
-    gap: 8,
-    width: '100%',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  viewsText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  avatarsPreview: { flexDirection: 'row', width: 30, height: 20 },
-  miniAvatar: { position: 'absolute', width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: '#000' },
+  // Footer
+  footer: { paddingHorizontal: 16, gap: 16 },
+  captionContainer: { alignSelf: 'center', marginBottom: 10, maxWidth: '90%' },
+  captionText: { color: '#fff', fontSize: 16, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
 
-  // Viewer Controls (Input)
+  // Owner Controls
+  viewsPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, gap: 8 },
+  viewsText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // Viewer Controls
   replyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  inputPill: {
-    flex: 1,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-  },
+  inputPill: { flex: 1, height: 48, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, backgroundColor: 'rgba(0,0,0,0.3)' },
   input: { flex: 1, color: '#fff', fontSize: 15 },
-  heartBtn: {
-    width: 50, height: 50, borderRadius: 25,
-    justifyContent: 'center', alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
-  },
+  heartBtn: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
 
-  // Modal Styles
+  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '60%' },
-  modalHeader: { padding: 16, flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#222' },
+  modalContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '50%' },
+  modalHeader: { padding: 16, flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#333' },
   modalTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  closeModalBtn: { backgroundColor: '#fff', padding: 4, borderRadius: 12 },
+  closeModalBtn: { backgroundColor: '#333', padding: 4, borderRadius: 12 },
   emptyText: { color: '#666', textAlign: 'center', marginTop: 20 },
   viewerItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
-  viewerAvatar: { width: 44, height: 44, borderRadius: 22 },
+  viewerAvatar: { width: 40, height: 40, borderRadius: 20 },
   viewerName: { color: '#fff', fontWeight: '600' },
   viewerTime: { color: '#888', fontSize: 12 },
 });
