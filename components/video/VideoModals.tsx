@@ -1,10 +1,11 @@
 import { X, Send, Trash2 } from 'lucide-react-native';
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, FlatList, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, FlatList, TextInput } from 'react-native';
 import { Image } from 'expo-image'; 
-import Colors from '@/constants/colors'; // Adjusted Path
-import { formatTimeAgo } from '@/constants/timeFormat'; // Adjusted Path
-import { api, MEDIA_BASE_URL } from '@/services/api'; // Adjusted Path
+import Colors from '@/constants/colors'; 
+import { formatTimeAgo } from '@/constants/timeFormat'; 
+import { api, MEDIA_BASE_URL } from '@/services/api'; // <<< FIXED: ADDED MEDIA_BASE_URL
+// Note: api is needed just to access MEDIA_BASE_URL which is usually part of that services file
 
 // Helper functions (defined here for self-containment)
 const getMediaUrl = (path: string | undefined) => {
@@ -46,7 +47,7 @@ interface VideoModalsProps {
     handleSave: () => void;
 }
 
-// --- OPTIONS MENU MODAL (Extracted from player.tsx) ---
+// --- OPTIONS MENU MODAL ---
 function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
