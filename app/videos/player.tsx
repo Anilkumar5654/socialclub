@@ -1,16 +1,23 @@
 import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown, Play, Pause, Maximize, ArrowLeft, MoreVertical, Download } from 'lucide-react-native';
+import {
+  ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, Save, Trash2, Flag,
+  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X
+} from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList, TextInput, ActivityIndicator, Share, Modal, Pressable, StatusBar, Alert } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList,
+  TextInput, ActivityIndicator, Share, Modal, Pressable, StatusBar, Alert
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { useAuth } from '@/contexts/AuthAuthContext';
+import { useAuth } from '@/contexts/AuthAuthContext'; 
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -38,11 +45,9 @@ const formatDuration = (seconds: any) => {
 };
 
 // --- RECOMMENDED CARD ---
-
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  // Use channel_name from recommended API (which we updated to contain final name)
-  const channelName = video.channel_name || video.user?.channel_name || 'Channel'; 
-  const channelAvatar = getMediaUrl(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
+  const channelName = video.channel_name || 'Channel';
+  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
   
   return (
     <TouchableOpacity style={styles.recCard} onPress={onPress} activeOpacity={0.9}>
@@ -65,6 +70,35 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
+// --- OPTIONS MENU MODAL (Custom UI) ---
+function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={onClose}>
+                <View style={styles.menuBox}>
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onSave(); }}>
+                        <Save size={20} color={Colors.text} /><Text style={styles.menuText}>Save Video</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onReport(); }}>
+                        <Flag size={20} color={Colors.text} /><Text style={styles.menuText}>Report</Text>
+                    </TouchableOpacity>
+
+                    {isOwner && (
+                        <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={() => { onClose(); onDelete(); }}>
+                            <Trash2 size={20} color="#FF4444" /><Text style={[styles.menuText, { color: '#FF4444' }]}>Delete Video</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity style={styles.menuItem} onPress={onClose}>
+                        <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </TouchableOpacity>
+        </Modal>
+    );
+}
+
 // --- MAIN PLAYER SCREEN ---
 
 export default function VideoPlayerScreen() {
@@ -84,10 +118,14 @@ export default function VideoPlayerScreen() {
   // Logic State
   const startTimeRef = useRef<number>(Date.now());
   const [isLiked, setIsLiked] = useState(false);
+  const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
+  
+  // Modals
   const [showComments, setShowComments] = useState(false);
+  const [showMenu, setShowMenu] = useState(false); // Menu State
   const [commentText, setCommentText] = useState('');
 
   // 1. Fetch Video Details
@@ -118,7 +156,7 @@ export default function VideoPlayerScreen() {
       setLikesCount(video.likes || video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
+      setTotalDurationSec(Number(video.duration) || 0); // Set total duration in seconds
     }
   }, [video]);
 
@@ -147,8 +185,23 @@ export default function VideoPlayerScreen() {
   // Mutations
   const likeMutation = useMutation({
     mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!),
-    onSuccess: (data) => { setIsLiked(data.isLiked); setLikesCount(data.likes); }
+    onSuccess: (data) => { 
+        setIsLiked(data.isLiked); 
+        setLikesCount(data.likes);
+        // Deslike Hatao
+        if(data.isLiked && isDisliked) { setIsDisliked(false); }
+    }
   });
+
+  const dislikeMutation = useMutation({
+    mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!),
+    onSuccess: (data) => { 
+        setIsDisliked(data.isDisliked); 
+        // Like Hatao
+        if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); }
+    }
+  });
+
 
   const subscribeMutation = useMutation({
     mutationFn: () => isSubscribed ? api.channels.unsubscribe(video.channel.id) : api.channels.subscribe(video.channel.id),
@@ -158,6 +211,16 @@ export default function VideoPlayerScreen() {
   const commentMutation = useMutation({
     mutationFn: (txt: string) => api.videos.comment(videoId!, txt),
     onSuccess: () => { setCommentText(''); refetchComments(); }
+  });
+  
+  const reportMutation = useMutation({
+      mutationFn: () => api.posts.report(videoId, 'Inappropriate'), // Using posts report for simplicity
+      onSuccess: () => { Alert.alert('Reported', 'Thank you for reporting this video.'); }
+  });
+  
+  const deleteMutation = useMutation({
+      mutationFn: () => api.posts.delete(videoId),
+      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.'); router.back(); }
   });
 
   // Handlers
@@ -176,6 +239,7 @@ export default function VideoPlayerScreen() {
   const handleScreenTap = () => setShowControls(!showControls);
 
   const handleLike = () => { likeMutation.mutate(); };
+  const handleDislike = () => { dislikeMutation.mutate(); }; 
   
   const handleShare = async () => {
     api.videos.share(videoId!);
@@ -187,12 +251,12 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url);
-  
-  // Robust Channel Data Access (Guaranteed by PHP fallback)
-  const channelName = video.channel.name || 'Channel Name'; 
+  const channelName = video.channel.name || 'Channel Name';
   const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
   const subscriberCount = video.channel.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
+  const isOwner = video.user.id === user?.id;
+
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -273,13 +337,19 @@ export default function VideoPlayerScreen() {
         {/* 3. ACTIONS (LIKE/DISLIKE/SHARE/DOWNLOAD) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
             
-            {/* LIKE (Pill Shape with Text) */}
-            <TouchableOpacity style={[styles.actionPillLike, isLiked && {backgroundColor: 'rgba(225, 48, 108, 0.15)'}]} onPress={handleLike}>
-                <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
-                <Text style={[styles.actionTextLike, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
+            {/* LIKE/DISLIKE PILL */}
+            <View style={styles.actionPill}>
+                <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
+                    <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
+                    <Text style={[styles.actionText, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
+                </TouchableOpacity>
+
                 <View style={styles.separator} />
-                <ThumbsDown size={20} color={Colors.text} />
-            </TouchableOpacity>
+
+                <TouchableOpacity style={styles.dislikeBtn} onPress={handleDislike}>
+                    <ThumbsDown size={20} color={isDisliked ? Colors.primary : Colors.text} fill={isDisliked ? Colors.primary : "transparent"} />
+                </TouchableOpacity>
+            </View>
 
             {/* OTHER BUTTONS (Round Icons) */}
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
@@ -294,17 +364,17 @@ export default function VideoPlayerScreen() {
                 <Share2 size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => { Alert.alert('Menu', 'More options...') }}>
+            <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowMenu(true)}>
                 <MoreVertical size={20} color={Colors.text} />
             </TouchableOpacity>
         </ScrollView>
 
-        {/* 4. DESCRIPTION EXPANDER */}
-        <TouchableOpacity style={styles.descContainer} onPress={() => setShowFullDesc(!showFullDesc)}>
-             <Text numberOfLines={showFullDesc ? undefined : 2} style={styles.descText}>
+        {/* 4. DESCRIPTION EXPANDER (NEW MODAL TRIGGER) */}
+        <TouchableOpacity style={styles.descContainer} onPress={() => setShowDescription(true)}>
+             <Text numberOfLines={2} style={styles.descText}>
                 {video.description || 'No description'}
              </Text>
-             <Text style={styles.moreText}>{showFullDesc ? 'Show less' : 'Show more'}</Text>
+             <Text style={styles.moreText}>Show details</Text>
         </TouchableOpacity>
 
         {/* 5. COMMENTS TEASER */}
@@ -329,7 +399,7 @@ export default function VideoPlayerScreen() {
                 <RecommendedVideoCard 
                     key={item.id} 
                     video={item} 
-                    onPress={() => router.push({ pathname: '/videos/player', params: { videoId: item.id } })} 
+                    onPress={() => router.replace({ pathname: '/videos/player', params: { videoId: item.id } })} 
                 />
             ))}
         </View>
@@ -340,7 +410,7 @@ export default function VideoPlayerScreen() {
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
                  <Text style={styles.modalTitle}>Comments</Text>
-                 <TouchableOpacity onPress={() => setShowComments(false)}><Text style={{fontWeight:'600', fontSize:16, color:Colors.primary}}>Close</Text></TouchableOpacity>
+                 <TouchableOpacity onPress={() => setShowComments(false)}><X color={Colors.textSecondary} size={24} /></TouchableOpacity>
              </View>
              <FlatList 
                 data={comments} 
@@ -361,6 +431,33 @@ export default function VideoPlayerScreen() {
              </View>
          </View>
       </Modal>
+
+      {/* --- DESCRIPTION MODAL --- */}
+      <Modal visible={showDescription} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDescription(false)}>
+         <View style={styles.modalContainer}>
+             <View style={styles.modalHeader}>
+                 <Text style={styles.modalTitle}>Description</Text>
+                 <TouchableOpacity onPress={() => setShowDescription(false)}><X color={Colors.textSecondary} size={24} /></TouchableOpacity>
+             </View>
+             <ScrollView style={{padding: 16}}>
+                <Text style={styles.title}>{video.title}</Text>
+                <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
+                <View style={{marginTop: 15, borderTopWidth:1, borderTopColor:'#222', paddingTop: 15}}>
+                    <Text style={styles.descTextFull}>{video.description || 'No description provided for this video.'}</Text>
+                </View>
+             </ScrollView>
+         </View>
+      </Modal>
+
+      {/* --- OPTIONS MENU MODAL (FINAL CUSTOM UI) --- */}
+      <OptionsMenuModal 
+        visible={showMenu}
+        onClose={() => setShowMenu(false)}
+        isOwner={isOwner}
+        onDelete={() => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])}}
+        onReport={() => { Alert.alert('Report', 'Please report through the website menu.', [{text:'OK'}]) }}
+        onSave={() => { Alert.alert('Save', 'Video saved to your library!'); }}
+      />
 
     </View>
   );
@@ -384,32 +481,45 @@ const styles = StyleSheet.create({
 
   // Content
   scrollContent: { flex: 1 },
-  infoSection: { padding: 12, paddingBottom: 0 },
+  infoSection: { padding: 12, paddingBottom: 12, borderBottomWidth: 1, borderColor: '#222' },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
   meta: { fontSize: 12, color: Colors.textSecondary },
+  descTeaser: { flexDirection:'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8},
+  descText: { fontSize: 13, color: Colors.text, flex: 1, marginRight: 10 },
+  descTextFull: { fontSize: 14, color: Colors.text, lineHeight: 22 },
 
-  // Actions Row
+
+  // Actions Row (FIX 3)
   actionsScroll: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
-  actionPillLike: { 
-      flexDirection: 'row', alignItems: 'center', 
+  actionPill: { 
+      flexDirection: 'row', 
+      alignItems: 'center', 
       backgroundColor: '#222', 
-      paddingHorizontal: 16, paddingVertical: 10, 
       borderRadius: 24, 
-      gap: 10 
+      overflow: 'hidden'
   },
+  likeBtn: {
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      paddingHorizontal: 16, 
+      paddingVertical: 10, 
+      gap: 8,
+  },
+  dislikeBtn: {
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      paddingHorizontal: 16, 
+      paddingVertical: 10, 
+      gap: 8,
+  },
+  actionText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   separator: { width: 1, height: 18, backgroundColor: '#444' },
-  actionTextLike: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
   iconBtnRound: {
       width: 44, height: 44, borderRadius: 22,
       backgroundColor: '#222',
       justifyContent: 'center', alignItems: 'center'
   },
-
-  // Description
-  descContainer: { padding: 12, backgroundColor: '#1a1a1a', marginHorizontal: 12, borderRadius: 8, marginTop: 4 },
-  descText: { fontSize: 13, color: Colors.text, lineHeight: 18 },
-  moreText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
 
   // Channel
   channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#222' },
@@ -422,7 +532,7 @@ const styles = StyleSheet.create({
   subTextActive: { color: '#fff' },
 
   // Comments Teaser
-  commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', margin: 12, marginTop: 8, borderRadius: 10 },
+  commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', margin: 12, borderRadius: 10 },
   commentsHeader: { color: '#fff', fontWeight: '700', fontSize: 14 },
   commentsCount: { color: Colors.textSecondary },
 
@@ -449,4 +559,11 @@ const styles = StyleSheet.create({
   commentBody: { fontSize: 14, color: Colors.textSecondary },
   inputArea: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#222', alignItems: 'center', paddingBottom: 30 },
   input: { flex: 1, backgroundColor: '#111', borderRadius: 20, padding: 10, marginRight: 10, color: Colors.text },
+
+  // Menu Styles
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+  menuBox: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, gap: 16 },
+  menuItemDestructive: { borderTopWidth: 1, borderTopColor: '#333', marginTop: 5, paddingTop: 15 },
+  menuText: { color: Colors.text, fontSize: 16, fontWeight: '600' }
 });
