@@ -2,8 +2,10 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { formatTimeAgo } from '@/constants/timeFormat'; // <<< FIXED: ADDED FORMAT TIME AGO
+import { api, MEDIA_BASE_URL } from '@/services/api'; // <<< FIXED: ADDED MEDIA_BASE_URL
 
-// Helper functions (Must be consistent with main file helpers)
+// Helper functions 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const getMediaUrl = (path: string | undefined) => {
@@ -71,9 +73,7 @@ const RecommendedVideoCard = ({ video, onPress }: { video: RecommendedVideo; onP
 // --- MAIN RECOMMENDED VIDEOS COMPONENT ---
 export default function RecommendedVideos({ recommended }: RecommendedVideosProps) {
     
-    // Handler to navigate to the new video player screen
     const handleVideoPress = (videoId: string) => {
-        // Use replace to prevent stacking endless player screens
         router.replace({ pathname: '/videos/player', params: { videoId } });
     };
 
@@ -107,5 +107,5 @@ const styles = StyleSheet.create({
     recAvatar: { width: 36, height: 36, borderRadius: 18 },
     recTextCol: { flex: 1, gap: 4 },
     recTitle: { color: '#fff', fontSize: 15, fontWeight: '500', lineHeight: 20 },
-    recMeta: { color: '#999', fontSize: 12 }, // Assuming default secondary color is needed
+    recMeta: { color: '#999', fontSize: 12 }, 
 });
