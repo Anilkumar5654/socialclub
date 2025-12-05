@@ -8,7 +8,7 @@ import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, router } from 'expo-router';
-import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, Check } from 'lucide-react-native'; // Added Check icon
+import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, User } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import Colors from '@/constants/colors';
@@ -32,6 +32,7 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
   const heartScale = useRef(new Animated.Value(0)).current;
   const lastTap = useRef<number | null>(null);
 
+  // Playback Control
   useEffect(() => {
     if (!videoRef.current) return;
     if (isActive) {
@@ -60,6 +61,7 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
     ]).start();
   };
 
+  // Get Video Duration for Analytics
   const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
     if (status.isLoaded && status.durationMillis && isActive) {
         onDurationUpdate(item.id, status.durationMillis / 1000); 
@@ -67,6 +69,9 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
   };
 
   const getUrl = (path: string) => path?.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
+
+  // Default Avatar Fallback
+  const channelAvatar = item.channel_avatar ? getUrl(item.channel_avatar) : 'https://via.placeholder.com/100';
 
   return (
     <View style={[styles.reelContainer, { height: ACTUAL_HEIGHT }]}>
@@ -111,22 +116,26 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Channel Info */}
+          {/* Bottom Info (Channel) */}
           <View style={[styles.bottomInfo, { bottom: insets.bottom + 10 }]}>
             <View style={styles.channelRow}>
                 <TouchableOpacity 
                   style={styles.channelInfo} 
-                  onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: item.channel_id } })}
+                  onPress={() => {
+                      if (item.channel_id) {
+                          router.push({ pathname: '/channel/[channelId]', params: { channelId: item.channel_id } });
+                      }
+                  }}
                 >
-                  <Image source={{ uri: getUrl(item.channel_avatar) }} style={styles.avatar} />
-                  <Text style={styles.channelName}>{item.channel_name}</Text>
+                  <Image source={{ uri: channelAvatar }} style={styles.avatar} />
+                  <Text style={styles.channelName}>{item.channel_name || 'Unknown Channel'}</Text>
                   {item.channel_verified && <View style={styles.verifiedBadge}><Text style={styles.verifiedText}>✓</Text></View>}
                 </TouchableOpacity>
 
                 {/* SUBSCRIBE BUTTON */}
                 <TouchableOpacity 
                     style={[styles.subscribeBtn, item.is_subscribed && styles.subscribedBtn]} 
-                    onPress={() => toggleSubscribe(item.channel_id)}
+                    onPress={() => item.channel_id && toggleSubscribe(item.channel_id)}
                 >
                     <Text style={[styles.subscribeText, item.is_subscribed && styles.subscribedText]}>
                         {item.is_subscribed ? 'Subscribed' : 'Subscribe'}
@@ -165,7 +174,7 @@ export default function ReelsScreen() {
 
   const reels = data?.reels || [];
 
-  // 2. Track View
+  // 2. Track View (Analytics)
   const trackCurrentView = useCallback((index: number, reelList: any[]) => {
     const reel = reelList[index];
     if (!reel) return;
@@ -186,7 +195,7 @@ export default function ReelsScreen() {
     }, [activeIndex, reels, trackCurrentView])
   );
 
-  // 3. Mutations
+  // 3. Like Mutation
   const likeMutation = useMutation({
     mutationFn: (reelId: string) => {
       const reel = reels.find((r: any) => r.id === reelId);
@@ -209,12 +218,14 @@ export default function ReelsScreen() {
     }
   });
 
+  // 4. Subscribe Mutation
   const subscribeMutation = useMutation({
     mutationFn: (channelId: string) => {
+        // Logic assumes toggle behavior in backend or standard flow
+        // Ideally we check current state. Here simply toggling for UI responsiveness.
+        // Assuming api.channels.subscribe handles toggle or check is_subscribed
+        // For accurate logic: 
         const reel = reels.find((r: any) => r.channel_id === channelId);
-        // Note: Logic assumes api.channels.subscribe handles toggle or you need separate unsubscribe
-        // For simplicity here assuming subscribe works as toggle or just subscribe
-        // Ideally: check reel.is_subscribed ? unsubscribe : subscribe
         return reel?.is_subscribed ? api.channels.unsubscribe(channelId) : api.channels.subscribe(channelId);
     },
     onSuccess: (data, channelId) => {
@@ -222,7 +233,7 @@ export default function ReelsScreen() {
         if (!oldData) return oldData;
         return {
           ...oldData,
-          // Update ALL reels from same channel
+          // Update all reels from this channel in the list
           reels: oldData.reels.map((r: any) => {
             if (r.channel_id === channelId) {
               return { ...r, is_subscribed: !r.is_subscribed };
@@ -234,6 +245,7 @@ export default function ReelsScreen() {
     }
   });
 
+  // 5. Viewability Handler
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
     if (viewableItems.length > 0) {
       const newIndex = viewableItems[0].index ?? 0;
@@ -286,7 +298,11 @@ export default function ReelsScreen() {
         getItemLayout={(data, index) => ({ length: ACTUAL_HEIGHT, offset: ACTUAL_HEIGHT * index, index })}
         onEndReached={() => { if (data?.hasMore) setPage(p => p + 1); }}
         onEndReachedThreshold={2}
-        ListEmptyComponent={<View style={[styles.loadingContainer, { height: ACTUAL_HEIGHT }]}><Text style={{ color: '#fff' }}>No Reels found</Text></View>}
+        ListEmptyComponent={
+            <View style={[styles.loadingContainer, { height: ACTUAL_HEIGHT }]}>
+                <Text style={{ color: '#fff' }}>No Reels found</Text>
+            </View>
+        }
       />
     </View>
   );
@@ -300,7 +316,7 @@ const styles = StyleSheet.create({
   reelContainer: { width: SCREEN_WIDTH, backgroundColor: '#000', position: 'relative' },
   videoWrapper: { flex: 1, backgroundColor: '#121212' },
   video: { width: '100%', height: '100%' },
-  gradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 350 }, // Increased height for better visibility
+  gradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 350 }, // Increased for better text visibility
   centerHeart: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5 },
   rightActions: { position: 'absolute', right: 10, zIndex: 20, alignItems: 'center', gap: 20 },
   actionBtn: { alignItems: 'center' },
@@ -308,8 +324,8 @@ const styles = StyleSheet.create({
   bottomInfo: { position: 'absolute', left: 16, right: 80, zIndex: 20 },
   
   // Channel Styles
-  channelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, justifyContent: 'space-between', width: '100%' },
-  channelInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  channelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  channelInfo: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#fff', marginRight: 10 },
   channelName: { color: '#fff', fontWeight: '700', fontSize: 16, marginRight: 6 },
   verifiedBadge: { backgroundColor: Colors.primary, borderRadius: 10, width: 14, height: 14, justifyContent: 'center', alignItems: 'center' },
