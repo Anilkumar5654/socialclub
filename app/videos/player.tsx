@@ -109,7 +109,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Defined here, passed to components) ---
+  // --- HANDLERS (Passed to Controllers/Actions) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -155,8 +155,8 @@ export default function VideoPlayerScreen() {
       const newPositionMillis = videoDuration * newPositionPercentage;
       setSeekPosition(newPositionMillis);
   };
-  
-  // <<< PAUSE-JUMP-PLAY LOGIC START >>>
+
+  // <<< NEW PAUSE-JUMP-PLAY LOGIC START >>>
   const handleSeekStart = async (event: any) => { 
       if (!videoRef.current) return;
       
@@ -209,7 +209,8 @@ export default function VideoPlayerScreen() {
           }
       }
   };
-  // <<< PAUSE-JUMP-PLAY LOGIC END >>>
+  // <<< NEW PAUSE-JUMP-PLAY LOGIC END >>>
+
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
