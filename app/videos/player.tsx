@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
-  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X
+  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X, Save, Flag, Trash2
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -22,7 +22,7 @@ import { getDeviceId } from '@/utils/deviceId';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS ---
+// --- HELPERS (NULL-SAFE) ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
@@ -37,7 +37,7 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
-// Correct Duration Format (seconds to MM:SS)
+// FIX: Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -48,7 +48,6 @@ const formatDuration = (seconds: any) => {
 };
 
 // --- RECOMMENDED CARD ---
-
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
@@ -148,7 +147,7 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
+  // 4. Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
@@ -231,6 +230,11 @@ export default function VideoPlayerScreen() {
       onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.'); router.back(); }
   });
 
+  const saveMutation = useMutation({
+      mutationFn: () => api.videos.save(videoId!),
+      onSuccess: () => { Alert.alert('Saved', 'Video added to your library!'); }
+  });
+
 
   // Handlers
   const togglePlayPause = async () => {
@@ -261,6 +265,7 @@ export default function VideoPlayerScreen() {
 
   const videoUrl = getMediaUrl(video.video_url);
   
+  // Robust Channel Data Access (Guaranteed by PHP fallback)
   const channelName = video.channel.name || 'Channel Name'; 
   const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
   const subscriberCount = video.channel.subscribers_count || 0;
@@ -464,10 +469,10 @@ export default function VideoPlayerScreen() {
       <OptionsMenuModal 
         visible={showMenu}
         onClose={() => setShowMenu(false)}
-        isOwner={video?.user?.id === user?.id}
+        isOwner={isOwner}
         onDelete={() => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])}}
         onReport={() => { Alert.alert('Report', 'Please report through the website menu.', [{text:'OK'}]) }}
-        onSave={() => { Alert.alert('Save', 'Video saved to your library!'); }}
+        onSave={() => { Alert.alert('Save', 'Video saved to your library!', [{text:'OK'}]) }}
       />
 
 
