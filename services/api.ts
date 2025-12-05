@@ -231,6 +231,28 @@ class ApiClient {
     share: async (id: string) => this.request(`/videos/action/share`, { method: 'POST', body: JSON.stringify({ video_id: id }) }),
     upload: async (formData: FormData) => this.request('/videos/upload', { method: 'POST', body: formData }),
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
+
+    // <<< NEW FUNCTIONS ADDED AS PER USER REQUEST >>>
+    report: async (videoId: string, reason: string = 'Inappropriate', description?: string) => {
+      return this.request('/videos/action/report.php', {
+        method: 'POST',
+        body: JSON.stringify({ video_id: videoId, reason, description }),
+      });
+    },
+    
+    save: async (videoId: string) => {
+        return this.request('/videos/action/save', { 
+            method: 'POST',
+            body: JSON.stringify({ video_id: videoId }),
+        });
+    },
+
+    delete: async (videoId: string) => {
+      return this.request('/videos/action/delete.php', { 
+          method: 'POST', 
+          body: JSON.stringify({ video_id: videoId }),
+      });
+    },
   };
 
   ads = {
