@@ -22,14 +22,13 @@ import { getDeviceId } from '@/utils/deviceId';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS (NULL-SAFE) ---
+// --- HELPERS ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
-// FIX: Null-Safe Views Formatting (Crash Fix)
 const formatViews = (views: number | undefined | null) => {
   const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
@@ -37,7 +36,6 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
-// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -49,8 +47,9 @@ const formatDuration = (seconds: any) => {
 
 // --- RECOMMENDED CARD ---
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  const channelName = video.channel_name || 'Channel';
-  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
+  // Use optional chaining for safety in recommended cards
+  const channelName = video.channel_name || video.user?.channel_name || 'Channel'; 
+  const channelAvatar = getMediaUrl(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
   
   return (
     <TouchableOpacity style={styles.recCard} onPress={onPress} activeOpacity={0.9}>
@@ -102,7 +101,6 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
     );
 }
 
-
 // --- MAIN PLAYER SCREEN ---
 
 export default function VideoPlayerScreen() {
@@ -126,7 +124,7 @@ export default function VideoPlayerScreen() {
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [showFullDesc, setShowFullDesc] = useState(false); // To manage description modal state
+  const [showFullDesc, setShowFullDesc] = useState(false);
   
   // Modals
   const [showComments, setShowComments] = useState(false);
@@ -168,7 +166,7 @@ export default function VideoPlayerScreen() {
 
   // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
-    if (videoId) api.videos.view(videoId); // Track immediate view
+    if (videoId) api.videos.view(videoId);
 
     startTimeRef.current = Date.now();
     
@@ -177,7 +175,7 @@ export default function VideoPlayerScreen() {
         const watchedSec = (endTime - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
         
-        // CRITICAL: Unload video component on unmount to stop background audio
+        // CRITICAL FIX: Unload video component on unmount to stop background audio
         if (videoRef.current) {
             videoRef.current.unloadAsync();
         }
@@ -232,7 +230,7 @@ export default function VideoPlayerScreen() {
   });
 
   const saveMutation = useMutation({
-      mutationFn: () => api.videos.save(videoId!),
+      mutationFn: () => api.videos.save(videoId!), // Placeholder, assuming you will add this API
       onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
   });
 
@@ -266,7 +264,7 @@ export default function VideoPlayerScreen() {
 
   const videoUrl = getMediaUrl(video.video_url);
   
-  // Robust Channel Data Access (Guaranteed by PHP fallback)
+  // Final Data Extraction
   const channelName = video.channel.name || 'Channel Name'; 
   const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
   const subscriberCount = video.channel.subscribers_count || 0;
@@ -436,7 +434,7 @@ export default function VideoPlayerScreen() {
                     <View style={styles.commentItem}>
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
-                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></View>
+                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></Text>
                             <Text style={styles.commentBody}>{item.content}</Text>
                         </View>
                     </View>
