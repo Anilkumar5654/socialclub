@@ -232,8 +232,9 @@ class ApiClient {
     upload: async (formData: FormData) => this.request('/videos/upload', { method: 'POST', body: formData }),
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
 
-    // <<< USER REQUESTED FUNCTIONS >>>
+    // <<< USER REQUESTED FUNCTIONS ADDED >>>
     report: async (videoId: string, reason: string = 'Inappropriate', description?: string) => {
+      // Endpoint: /videos/action/report.php
       return this.request('/videos/action/report.php', {
         method: 'POST',
         body: JSON.stringify({ video_id: videoId, reason, description }),
@@ -241,6 +242,7 @@ class ApiClient {
     },
     
     save: async (videoId: string) => {
+        // Endpoint: /videos/action/save
         return this.request('/videos/action/save', { 
             method: 'POST',
             body: JSON.stringify({ video_id: videoId }),
@@ -248,6 +250,7 @@ class ApiClient {
     },
 
     delete: async (videoId: string) => {
+      // Endpoint: /videos/action/delete.php
       return this.request('/videos/action/delete.php', { 
           method: 'POST', 
           body: JSON.stringify({ video_id: videoId }),
