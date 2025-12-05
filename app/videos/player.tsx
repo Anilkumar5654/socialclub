@@ -140,7 +140,11 @@ export default function VideoPlayerScreen() {
   
   // <<< NEW REFS FOR DOUBLE TAP LOGIC >>>
   const lastTapTime = useRef(0);
-  const tapArea = useRef<'left' | 'right' | null>(null);
+  
+  // <<< NEW STATE for Seek Feedback (Fix 2) >>>
+  const [showSeekIcon, setShowSeekIcon] = useState(false);
+  const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
+  const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
 
   // Logic State
@@ -292,12 +296,28 @@ export default function VideoPlayerScreen() {
 
   // --- NEW SEEKING LOGIC ---
 
+  // Seek feedback display function
+  const displaySeekFeedback = (direction: 'forward' | 'backward') => {
+      // Clear any existing timeout
+      if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
+      
+      setSeekDirection(direction);
+      setShowSeekIcon(true);
+      
+      // Hide the icon after 500ms
+      seekFeedbackTimeout.current = setTimeout(() => {
+          setShowSeekIcon(false);
+      }, 500);
+  };
+  
   // Seek Video by X seconds (used by double-tap)
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
     
-    // Calculate new position in milliseconds
-    const currentPosMillis = (await videoRef.current.getStatusAsync()).positionMillis || currentPosition;
+    // Get current position synchronously
+    const status = await videoRef.current.getStatusAsync();
+    const currentPosMillis = status.positionMillis || currentPosition;
+    
     const newPosition = currentPosMillis + amount * 1000;
     const maxDuration = videoDuration;
     
@@ -338,7 +358,9 @@ export default function VideoPlayerScreen() {
       if (videoRef.current) {
           try {
               await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
-              if (isPlaying) {
+              // CRITICAL FIX: Ensure playback resumes only if it was playing before drag started
+              // The `isPlaying` state handles whether to play or remain paused.
+              if (isPlaying) { 
                   await videoRef.current.playAsync();
               }
               setIsSeeking(false);
@@ -365,7 +387,7 @@ export default function VideoPlayerScreen() {
     
     // Determine tap side
     const tapX = event.nativeEvent.locationX;
-    const currentWidth = isFullscreen ? Dimensions.get('window').height : SCREEN_WIDTH; 
+    const currentWidth = isFullscreen ? Dimensions.get('window').width : SCREEN_WIDTH; // Use current visible width
     
     const isLeft = tapX < currentWidth * 0.4;
     const isRight = tapX > currentWidth * 0.6;
@@ -373,13 +395,13 @@ export default function VideoPlayerScreen() {
     if (isDoubleTap) {
       if (isLeft) {
         seekVideo(-10); // 10 seconds backward
-        showCustomToast('<< 10s');
+        displaySeekFeedback('backward'); // <<< Display Feedback
       } else if (isRight) {
         seekVideo(10); // 10 seconds forward
-        showCustomToast('10s >>');
+        displaySeekFeedback('forward'); // <<< Display Feedback
       }
       
-      // Prevent single-tap action (controls toggle) after double-tap
+      // Reset tap time to prevent single tap action immediately after double tap
       lastTapTime.current = 0; 
       setShowControls(true); // Show controls briefly after seeking
       return;
@@ -387,10 +409,14 @@ export default function VideoPlayerScreen() {
     
     lastTapTime.current = now;
     
-    // Fallback to controls toggle if not a double tap (handleScreenTap logic)
-    if (Date.now() - lastTapTime.current > 300) {
-        setShowControls(!showControls);
-    }
+    // Single Tap Logic: Check if enough time has passed since the first tap
+    // This allows the controls to toggle on a quick single press, but waits for 300ms 
+    // to confirm it's not the first tap of a double tap.
+    setTimeout(() => {
+        if (Date.now() - lastTapTime.current >= 300) {
+            setShowControls(!showControls);
+        }
+    }, 300);
   };
   
   const toggleFullscreen = () => {
@@ -449,6 +475,7 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url);
+  const thumbnailUrl = getMediaUrl(video.thumbnail_url); // Get thumbnail for poster fix
   
   // Robust Channel Data Access
   const channelName = video.channel.name || 'Channel Name'; 
@@ -464,7 +491,10 @@ export default function VideoPlayerScreen() {
   return (
     // Conditional styling based on fullScreen state
     <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
-      <Stack.Screen options={{ headerShown: !isFullscreen }} />
+      
+      {/* 1. FIX: Header is removed using headerShown: false */}
+      <Stack.Screen options={{ headerShown: false }} /> 
+      
       <StatusBar barStyle="light-content" hidden={isFullscreen} />
 
       {/* PLAYER AREA */}
@@ -477,6 +507,13 @@ export default function VideoPlayerScreen() {
           resizeMode={ResizeMode.CONTAIN}
           shouldPlay={isPlaying}
           useNativeControls={false}
+          
+          // <<< PERFORMANCE FIXES >>>
+          usePoster={true} // Use poster image while video is loading
+          posterSource={{ uri: thumbnailUrl }}
+          posterStyle={StyleSheet.absoluteFillObject}
+          // <<< END PERFORMANCE FIXES >>>
+          
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
@@ -491,7 +528,18 @@ export default function VideoPlayerScreen() {
           onError={(e) => console.log('CRITICAL EXPO VIDEO ERROR:', e)}
         />
         
-        {/* OVERLAY CONTROLS */}
+        {/* 2. FIX: SEEK FEEDBACK OVERLAY (YouTube Style) */}
+        {showSeekIcon && (
+            <View style={styles.seekOverlay}>
+                {seekDirection === 'forward' ? 
+                    <Image source={require('@/assets/icons/forward-10.png')} style={styles.seekIcon} /> 
+                    : 
+                    <Image source={require('@/assets/icons/backward-10.png')} style={styles.seekIcon} /> 
+                }
+            </View>
+        )}
+        
+        {/* OVERLAY CONTROLS (Pressable modified to call handleDoubleTap) */}
         <Pressable style={styles.overlay} onPress={handleDoubleTap}>
           {showControls && (
             <View style={styles.controls}>
@@ -506,7 +554,7 @@ export default function VideoPlayerScreen() {
               <View style={styles.bottomControlBar}>
                 <Text style={styles.timeText}>{formatDuration(displayPosition/1000)} / {formatDuration(videoDuration/1000)}</Text>
                 
-                {/* <<< SEEKING ENABLED PROGRESS BAR >>> */}
+                {/* SEEKING ENABLED PROGRESS BAR */}
                 <Pressable
                     ref={progressBarRef}
                     style={styles.progressBarBg}
@@ -515,9 +563,10 @@ export default function VideoPlayerScreen() {
                     onResponderMove={handleSeekMove} // Dragging
                     onResponderRelease={handleSeekEnd} // End dragging/tap
                 >
+                    {/* The actual progress bar fill */}
+                    <View style={styles.progressBarTrack} />
                     <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
                 </Pressable>
-                {/* <<< END SEEKING ENABLED PROGRESS BAR >>> */}
                 
                 {/* Fullscreen Button */}
                 <TouchableOpacity onPress={toggleFullscreen}>
@@ -718,13 +767,7 @@ const styles = StyleSheet.create({
   
   // Player
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#000' },
-  
-  // <<< NEW FULLSCREEN STYLE >>>
   playerContainerFull: {
-    // Note: Dimensions.get('window') gives current screen dimensions.
-    // In a rotating app, this often needs to be handled by setting 
-    // width/height explicitly to swap based on orientation lock.
-    // Here we use the swap logic as a simple full screen placeholder.
     width: Dimensions.get('window').width, 
     height: Dimensions.get('window').height,
     backgroundColor: '#000',
@@ -742,9 +785,34 @@ const styles = StyleSheet.create({
   bottomControlBar: { flexDirection: 'row', alignItems: 'center', padding: 10, paddingBottom: 10 },
   timeText: { color: '#fff', fontSize: 12, marginRight: 10, fontWeight: '600' },
   
+  // <<< Seek Feedback Overlay Styles (Fix 2) >>>
+  seekOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5, // Below controls (10), above video (0)
+  },
+  seekIcon: {
+      width: 70, // Adjust size as needed
+      height: 70, // Adjust size as needed
+      opacity: 0.8,
+  },
+  // <<< End Seek Feedback Overlay Styles >>>
+
   // Progress Bar (Now a Pressable)
   progressBarBg: { flex: 1, height: 20, justifyContent: 'center', backgroundColor: 'transparent' }, // Increased height for easy press
-  progressBarFill: { height: 3, backgroundColor: Colors.primary, borderRadius: 2 },
+  progressBarTrack: { 
+      position: 'absolute', 
+      height: 3, 
+      width: '100%', 
+      backgroundColor: 'rgba(255,255,255,0.3)', 
+      borderRadius: 2 
+  },
+  progressBarFill: { 
+      height: 3, 
+      backgroundColor: Colors.primary, 
+      borderRadius: 2 
+  },
   
   // Content
   scrollContent: { flex: 1 },
