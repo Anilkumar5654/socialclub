@@ -16,15 +16,15 @@ import { api, MEDIA_BASE_URL } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext'; 
 import { getDeviceId } from '@/utils/deviceId'; 
 
-// <<< UPDATED IMPORTS >>>
+// <<< ALL EXTERNAL COMPONENTS IMPORTED SAFELY >>>
 import VideoController from '@/components/video/VideoController'; 
 import VideoActions from '@/components/video/VideoActions'; 
 import VideoModals from '@/components/video/VideoModals'; 
-import RecommendedVideos from '@/components/video/RecommendedVideos'; // NEW IMPORT
+import RecommendedVideos from '@/components/video/RecommendedVideos'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS (Kept Minimal) ---
+// --- HELPERS (Minimal) ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
@@ -54,7 +54,7 @@ export default function VideoPlayerScreen() {
   const [currentPosition, setCurrentPosition] = useState(0); 
   const [totalDurationSec, setTotalDurationSec] = useState(0); 
   
-  // Fullscreen & Seeking State
+  // Fullscreen & Seeking State (Managed here, passed to Controller)
   const [isFullscreen, setIsFullscreen] = useState(false); 
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPosition, setSeekPosition] = useState(0); 
@@ -62,13 +62,13 @@ export default function VideoPlayerScreen() {
   const progressBarWidth = useRef(0);
   const lastTapTime = useRef(0);
   
-  // Seek Feedback State
+  // Seek Feedback State (Managed here, passed to Controller)
   const [showSeekIcon, setShowSeekIcon] = useState(false);
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
 
-  // Logic & UI State
+  // Logic & UI State (Passed to Actions/Modals)
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
@@ -93,10 +93,10 @@ export default function VideoPlayerScreen() {
   const { data: commentsData, refetch: refetchComments } = useQuery({ queryKey: ['video-comments', videoId], queryFn: () => api.videos.getComments(videoId!, 1), enabled: !!videoId });
   
   const video = videoData?.video; 
-  const recommended = recData?.videos || []; // Use 'recommended' data here
+  const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Mutations (No Change)
+  // Mutations (Used by handlers)
   const likeMutation = useMutation({ mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!), onSuccess: (data) => { setIsLiked(data.isLiked); setLikesCount(data.likes); if(data.isLiked && isDisliked) { setIsDisliked(false); } }});
   const dislikeMutation = useMutation({ mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!), onSuccess: (data) => { setIsDisliked(data.isDisliked); if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); } }});
   const subscribeMutation = useMutation({ mutationFn: () => api.channels[isSubscribed ? 'unsubscribe' : 'subscribe'](video?.channel?.id!), onSuccess: () => setIsSubscribed(!isSubscribed) });
@@ -106,7 +106,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Passed to Controllers/Actions) ---
+  // --- HANDLERS (Defined here, passed to components) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -117,7 +117,7 @@ export default function VideoPlayerScreen() {
   const handleDelete = () => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }]); };
   const handleSave = () => { saveMutation.mutate(); }
   
-  // (All playback and control handlers remain here as they manage local state/refs)
+  // Seek feedback display function
   const displaySeekFeedback = (direction: 'forward' | 'backward') => {
       if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
       setSeekDirection(direction);
@@ -127,13 +127,16 @@ export default function VideoPlayerScreen() {
       }, 500);
   };
   
+  // Seek Video by X seconds (used by double-tap)
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
+    
     const status = await videoRef.current.getStatusAsync();
     const currentPosMillis = status.positionMillis || currentPosition;
     const newPosition = currentPosMillis + amount * 1000;
     const maxDuration = videoDuration;
     const finalPosition = Math.min(Math.max(0, newPosition), maxDuration);
+
     try {
       await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
       setCurrentPosition(finalPosition); 
@@ -142,6 +145,7 @@ export default function VideoPlayerScreen() {
   }, [currentPosition, videoDuration, showControls]);
 
 
+  // SEEKING BAR LOGIC 
   const handleSeek = (x: number) => {
       const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
       const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
@@ -177,6 +181,7 @@ export default function VideoPlayerScreen() {
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
+  // DOUBLE TAP LOGIC
   const handleDoubleTap = (event: any) => {
     const now = Date.now();
     const isDoubleTap = now - lastTapTime.current < 300; 
@@ -219,6 +224,20 @@ export default function VideoPlayerScreen() {
       });
     }
   }, [videoId, totalDurationSec]);
+
+  // Effects and Watch Time Cleanup (Existing Logic)
+  useEffect(() => {
+    // ... Initialization logic ...
+  }, [video]);
+
+  useEffect(() => {
+    // ... Cleanup logic ...
+    return () => {
+        const watchedSec = (Date.now() - (useRef(Date.now())).current) / 1000;
+        trackVideoWatch(watchedSec);
+    };
+  }, [videoId, totalDurationSec]);
+
 
   // Null Check
   if (isLoading || !video || !video.channel) { 
@@ -435,7 +454,7 @@ const styles = StyleSheet.create({
   // Channel
   channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#222' },
   channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333' },
-  channelName: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  channelName: { color: Colors.text, fontWeight: '700', fontSize: 15 },
   subsText: { color: Colors.textSecondary, fontSize: 12 },
   subBtn: { backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   subBtnActive: { backgroundColor: '#333', borderWidth: 1, borderColor: '#444' },
@@ -444,10 +463,10 @@ const styles = StyleSheet.create({
 
   // Comments Teaser
   commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', marginHorizontal: 12, marginBottom: 12, borderRadius: 10 },
-  commentsHeader: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  commentsHeader: { color: Colors.text, fontWeight: '700', fontSize: 14 },
   commentsCount: { color: Colors.textSecondary },
 
-  // Recommended Cards (Styles kept here for now, as they are used only by RecommendedVideos component)
+  // Recommended Cards 
   recSection: { paddingBottom: 40 },
   recCard: { marginBottom: 16 },
   recThumbContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#222' },
@@ -457,7 +476,7 @@ const styles = StyleSheet.create({
   recInfo: { flexDirection: 'row', padding: 12, gap: 12 },
   recAvatar: { width: 36, height: 36, borderRadius: 18 },
   recTextCol: { flex: 1, gap: 4 },
-  recTitle: { color: '#fff', fontSize: 15, fontWeight: '500', lineHeight: 20 },
+  recTitle: { color: Colors.text, fontSize: 15, fontWeight: '500', lineHeight: 20 },
   recMeta: { color: Colors.textSecondary, fontSize: 12 },
   
   // Custom Toast Styles
