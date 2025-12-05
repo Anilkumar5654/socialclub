@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
-  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X
+  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X, Save, Flag, Trash2
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -22,7 +22,7 @@ import { getDeviceId } from '@/utils/deviceId';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS ---
+// --- HELPERS (NULL-SAFE) ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
@@ -46,10 +46,10 @@ const formatDuration = (seconds: any) => {
 };
 
 // --- RECOMMENDED CARD ---
+
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  // Use optional chaining for safety in recommended cards
-  const channelName = video.channel_name || video.user?.channel_name || 'Channel'; 
-  const channelAvatar = getMediaUrl(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
+  const channelName = video.channel_name || 'Channel';
+  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
   
   return (
     <TouchableOpacity style={styles.recCard} onPress={onPress} activeOpacity={0.9}>
@@ -124,11 +124,11 @@ export default function VideoPlayerScreen() {
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [showFullDesc, setShowFullDesc] = useState(false);
   
   // Modals
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showDescription, setShowDescription] = useState(false); // Description Modal State
   const [commentText, setCommentText] = useState('');
 
   // 1. Fetch Video Details
@@ -146,10 +146,10 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
+  // Watch Time Tracker (Viral Logic)
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
-      const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
+      const deviceId = await getDeviceId(); 
       api.videos.trackWatch(videoId, watchedSec, totalDurationSec, deviceId); 
     }
   }, [videoId, totalDurationSec]);
@@ -160,13 +160,13 @@ export default function VideoPlayerScreen() {
       setLikesCount(video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
+      setTotalDurationSec(Number(video.duration) || 0); 
     }
   }, [video]);
 
   // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
-    if (videoId) api.videos.view(videoId);
+    if (videoId) api.videos.view(videoId); // Track immediate view
 
     startTimeRef.current = Date.now();
     
@@ -175,7 +175,7 @@ export default function VideoPlayerScreen() {
         const watchedSec = (endTime - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
         
-        // CRITICAL FIX: Unload video component on unmount to stop background audio
+        // CRITICAL: Unload video component on unmount to stop background audio
         if (videoRef.current) {
             videoRef.current.unloadAsync();
         }
@@ -221,12 +221,12 @@ export default function VideoPlayerScreen() {
   
   const reportMutation = useMutation({
       mutationFn: () => api.posts.report(videoId, 'Inappropriate'),
-      onSuccess: () => { Alert.alert('Reported', 'Thank you for reporting this video.'); }
+      onSuccess: () => { Alert.alert('Reported', 'Thank you for reporting this video.', [{text:'OK'}]); }
   });
   
   const deleteMutation = useMutation({
       mutationFn: () => api.posts.delete(videoId),
-      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.'); router.back(); }
+      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK', onPress: () => router.back()}]); }
   });
 
   const saveMutation = useMutation({
@@ -264,12 +264,12 @@ export default function VideoPlayerScreen() {
 
   const videoUrl = getMediaUrl(video.video_url);
   
-  // Final Data Extraction
-  const channelName = video.channel.name || 'Channel Name'; 
-  const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
-  const subscriberCount = video.channel.subscribers_count || 0;
+  // Final Data Check (Using optional chaining for safety)
+  const channelName = video.channel?.name || 'Channel Name'; 
+  const channelAvatar = getMediaUrl(video.channel?.avatar || 'assets/c_profile.jpg');
+  const subscriberCount = video.channel?.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
-  const isOwner = video.user.id === user?.id; // Check ownership
+  const isOwner = video.user?.id === user?.id; // Check ownership
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -329,7 +329,7 @@ export default function VideoPlayerScreen() {
         </View>
 
         {/* 2. CHANNEL ROW */}
-        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
+        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel?.id } })}>
             <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
                 <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
                 <View>
@@ -398,7 +398,7 @@ export default function VideoPlayerScreen() {
             </View>
             {comments.length > 0 ? (
                 <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
-                    <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
+                    <Image source={{ uri: getMediaUrl(comments[0].user?.avatar) }} style={{width:24, height:24, borderRadius:12}} />
                     <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
                 </View>
             ) : (
