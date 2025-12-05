@@ -4,10 +4,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X,
-  // CRITICAL: Ensure all used icons are imported
   Save, Flag, Trash2,
-  
-  // <<< FIX: Use these Lucide icons for seek feedback >>>
   ArrowBigRight, ArrowBigLeft 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -17,12 +14,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-// CRASH FIX: Removed import * as ScreenOrientation from 'expo-screen-orientation';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-// FIX: Using the correct original path to prevent bundling errors
 import { useAuth } from '@/contexts/AuthContext'; 
 import { getDeviceId } from '@/utils/deviceId'; 
 
@@ -36,7 +31,6 @@ const getMediaUrl = (path: string | undefined) => {
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
-// FIX: Null-Safe Views Formatting (Crash Fix)
 const formatViews = (views: number | undefined | null) => {
   const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
@@ -44,7 +38,6 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
-// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -54,7 +47,7 @@ const formatDuration = (seconds: any) => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
-// --- RECOMMENDED CARD ---
+// --- RECOMMENDED CARD & OPTIONS MENU MODAL (No Changes) ---
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
@@ -80,31 +73,22 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL ---
 function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={onClose}>
                 <View style={styles.menuBox}>
-                    
-                    {/* UI FIX: Save Video added back to menu, without icon */}
                     <TouchableOpacity style={styles.menuItemNoIcon} onPress={() => { onClose(); onSave(); }}>
                         <Text style={styles.menuText}>Save Video</Text>
                     </TouchableOpacity>
-                    
-                    {/* UI FIX: Report Option without icon */}
                     <TouchableOpacity style={styles.menuItemNoIcon} onPress={() => { onClose(); onReport(); }}>
                         <Text style={styles.menuText}>Report</Text>
                     </TouchableOpacity>
-
-                    {/* Delete Option (Owner only) */}
                     {isOwner && (
                         <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={() => { onClose(); onDelete(); }}>
                             <Trash2 size={20} color="#FF4444" /><Text style={[styles.menuText, { color: '#FF4444' }]}>Delete Video</Text>
                         </TouchableOpacity>
                     )}
-
-                    {/* Cancel Option */}
                     <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={onClose}>
                         <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
                     </TouchableOpacity>
@@ -119,7 +103,6 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
 
 export default function VideoPlayerScreen() {
   const { videoId } = useLocalSearchParams<{ videoId: string }>();
-  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
   const { user } = useAuth();
@@ -128,115 +111,89 @@ export default function VideoPlayerScreen() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
-  const [videoDuration, setVideoDuration] = useState(0); // In MS
-  const [currentPosition, setCurrentPosition] = useState(0); // In MS
-  const [totalDurationSec, setTotalDurationSec] = useState(0); // In Sec for API
+  const [videoDuration, setVideoDuration] = useState(0); 
+  const [currentPosition, setCurrentPosition] = useState(0); 
+  const [totalDurationSec, setTotalDurationSec] = useState(0); 
   
-  // <<< STATE FOR FULLSCREEN >>>
+  // Fullscreen & Seeking State
   const [isFullscreen, setIsFullscreen] = useState(false); 
-
-  // <<< STATE FOR SEEKING (Duration Bar) >>>
   const [isSeeking, setIsSeeking] = useState(false);
-  const [seekPosition, setSeekPosition] = useState(0); // In MS
+  const [seekPosition, setSeekPosition] = useState(0); 
   const progressBarRef = useRef<View>(null);
   const progressBarWidth = useRef(0);
-  
-  // <<< REFS FOR DOUBLE TAP LOGIC >>>
   const lastTapTime = useRef(0);
   
-  // <<< STATE for Seek Feedback (Fix 2) >>>
+  // <<< SEEKING FIX: Track if video was playing before dragging >>>
+  const wasPlayingBeforeSeek = useRef(true); 
+  
+  // Seek Feedback State
   const [showSeekIcon, setShowSeekIcon] = useState(false);
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
 
-  // Logic State
+  // Logic & UI State
   const startTimeRef = useRef<number>(Date.now());
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  
-  // Modals
   const [showDescription, setShowDescription] = useState(false); 
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [commentText, setCommentText] = useState('');
-
-  // <<< UI FIX 1: Custom Toast State >>>
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Function to show custom toast (replacing most Alert.alert calls)
   const showCustomToast = (message: string) => {
     setToastMessage(message);
     setShowToast(true);
-    // Hide after 3 seconds
     setTimeout(() => setShowToast(false), 3000); 
   };
 
 
-  // 1. Fetch Video Details
-  const { data: videoData, isLoading } = useQuery({
-    queryKey: ['video-details', videoId],
-    queryFn: () => api.videos.getDetails(videoId!),
-    enabled: !!videoId
-  });
-  const video = videoData?.video; 
-
-  // 2. Fetch Recommended & Comments
+  // Data Fetching (Use existing logic)
+  const { data: videoData, isLoading } = useQuery({ queryKey: ['video-details', videoId], queryFn: () => api.videos.getDetails(videoId!), enabled: !!videoId });
   const { data: recData } = useQuery({ queryKey: ['video-rec', videoId], queryFn: () => api.videos.getRecommended(videoId!), enabled: !!videoId });
   const { data: commentsData, refetch: refetchComments } = useQuery({ queryKey: ['video-comments', videoId], queryFn: () => api.videos.getComments(videoId!, 1), enabled: !!videoId });
   
+  const video = videoData?.video; 
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
+  // Watch Time Tracker (No Changes)
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
-      const deviceId = await getDeviceId(); 
       const completionRate = Math.min(1, watchedSec / (totalDurationSec || 1)); 
       api.videos.trackWatch(videoId, watchedSec, completionRate); 
     }
   }, [videoId, totalDurationSec]);
 
-  // <<< PLAYBACK SAFETY & INITIALIZE STATE >>>
+  // Effects (No major logic changes, state initialization)
   useEffect(() => {
     if (video) {
       setLikesCount(video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
       setTotalDurationSec(Number(video.duration) || 0);
-      
-      // FIX: Explicitly ensure isPlaying is true and attempt to play (solves play issue)
       setIsPlaying(true); 
-      if (videoRef.current) {
-          // Attempt to play explicitly when video data is loaded
-          videoRef.current.playAsync().catch(e => console.log("Play command skipped or failed on load:", e));
-      }
+      if (videoRef.current) { videoRef.current.playAsync().catch(e => console.log("Play command skipped or failed on load:", e)); }
     }
   }, [video]);
 
-  // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
     if (videoId) api.videos.view(videoId); 
-
     startTimeRef.current = Date.now();
-    
     return () => {
-        const endTime = Date.now();
-        const watchedSec = (endTime - startTimeRef.current) / 1000;
+        const watchedSec = (Date.now() - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
-        
-        if (videoRef.current) {
-            videoRef.current.unloadAsync();
-        }
+        if (videoRef.current) { videoRef.current.unloadAsync(); }
     };
   }, [videoId, totalDurationSec]);
 
   // Controls Auto-Hide
   useEffect(() => {
-    if (showControls && isPlaying && !isSeeking) { // Do not hide controls while seeking
+    if (showControls && isPlaying && !isSeeking) { 
       if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
       controlsTimeout.current = setTimeout(() => setShowControls(false), 3000);
     }
@@ -244,70 +201,23 @@ export default function VideoPlayerScreen() {
   }, [showControls, isPlaying, isSeeking]);
 
 
-  // Mutations (Logic retained, Success messages updated to use Custom Toast)
-  const likeMutation = useMutation({
-    mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!),
-    onSuccess: (data) => { 
-        setIsLiked(data.isLiked); 
-        setLikesCount(data.likes);
-        if(data.isLiked && isDisliked) { setIsDisliked(false); }
-    }
-  });
-
-  const dislikeMutation = useMutation({
-    mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!),
-    onSuccess: (data) => { 
-        setIsDisliked(data.isDisliked); 
-        if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); }
-    }
-  });
-
-  const subscribeMutation = useMutation({
-    mutationFn: () => api.channels[isSubscribed ? 'unsubscribe' : 'subscribe'](video?.channel?.id!),
-    onSuccess: () => setIsSubscribed(!isSubscribed)
-  });
-
-  const commentMutation = useMutation({
-    mutationFn: (txt: string) => api.videos.comment(videoId!, txt),
-    onSuccess: () => { setCommentText(''); refetchComments(); showCustomToast('Comment posted!'); }
-  });
-  
-  // Report Mutation (Uses Custom Toast for Success)
-  const reportMutation = useMutation({
-      mutationFn: () => api.videos.report(videoId!, 'Inappropriate'),
-      onSuccess: () => { 
-          showCustomToast('Thanks for reporting! We will review this video shortly.');
-      }
-  });
-  
-  // Delete Mutation (Uses Custom Toast for Success)
-  const deleteMutation = useMutation({
-      mutationFn: () => api.videos.delete(videoId!),
-      onSuccess: () => { showCustomToast('Video has been successfully deleted.'); router.back(); }
-  });
-
-  // Save Mutation (Used by the round icon button)
-  const saveMutation = useMutation({
-      mutationFn: () => api.videos.save(videoId!),
-      onSuccess: (data) => { 
-          // Assuming API returns data about save status
-          const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.';
-          showCustomToast(message);
-      }
-  });
+  // Mutations (No Changes)
+  const likeMutation = useMutation({ mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!), onSuccess: (data) => { setIsLiked(data.isLiked); setLikesCount(data.likes); if(data.isLiked && isDisliked) { setIsDisliked(false); } }});
+  const dislikeMutation = useMutation({ mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!), onSuccess: (data) => { setIsDisliked(data.isDisliked); if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); } }});
+  const subscribeMutation = useMutation({ mutationFn: () => api.channels[isSubscribed ? 'unsubscribe' : 'subscribe'](video?.channel?.id!), onSuccess: () => setIsSubscribed(!isSubscribed) });
+  const commentMutation = useMutation({ mutationFn: (txt: string) => api.videos.comment(videoId!, txt), onSuccess: () => { setCommentText(''); refetchComments(); showCustomToast('Comment posted!'); } });
+  const reportMutation = useMutation({ mutationFn: () => api.videos.report(videoId!, 'Inappropriate'), onSuccess: () => { showCustomToast('Thanks for reporting! We will review this video shortly.'); } });
+  const deleteMutation = useMutation({ mutationFn: () => api.videos.delete(videoId!), onSuccess: () => { showCustomToast('Video has been successfully deleted.'); router.back(); } });
+  const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- NEW SEEKING LOGIC ---
+  // --- SEEKING & CONTROL FIXES ---
 
   // Seek feedback display function
   const displaySeekFeedback = (direction: 'forward' | 'backward') => {
-      // Clear any existing timeout
       if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
-      
       setSeekDirection(direction);
       setShowSeekIcon(true);
-      
-      // Hide the icon after 500ms
       seekFeedbackTimeout.current = setTimeout(() => {
           setShowSeekIcon(false);
       }, 500);
@@ -317,26 +227,24 @@ export default function VideoPlayerScreen() {
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
     
-    // Get current position synchronously
     const status = await videoRef.current.getStatusAsync();
     const currentPosMillis = status.positionMillis || currentPosition;
     
     const newPosition = currentPosMillis + amount * 1000;
     const maxDuration = videoDuration;
     
-    // Ensure new position is within bounds [0, maxDuration]
     const finalPosition = Math.min(Math.max(0, newPosition), maxDuration);
 
     try {
       await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
-      setCurrentPosition(finalPosition); // Optimistic UI update
+      setCurrentPosition(finalPosition); 
     } catch (e) {
       console.log('Seek failed:', e);
     }
   }, [currentPosition, videoDuration]);
 
 
-  // --- NEW SEEKING BAR LOGIC (Duration Bar) ---
+  // SEEKING BAR LOGIC (Duration Bar)
   const handleSeek = (x: number) => {
       const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
       const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
@@ -344,11 +252,20 @@ export default function VideoPlayerScreen() {
       setSeekPosition(newPositionMillis);
   };
 
-  const handleSeekStart = (event: any) => {
+  const handleSeekStart = async (event: any) => {
       setIsSeeking(true);
       setSeekPosition(currentPosition); 
       handleSeek(event.nativeEvent.locationX);
-      if(isPlaying && videoRef.current) { videoRef.current.pauseAsync(); }
+      
+      // <<< FIX 1: Save the current playing status before pausing >>>
+      const status = await videoRef.current?.getStatusAsync();
+      wasPlayingBeforeSeek.current = status?.isPlaying || false; 
+
+      // Pause the video while seeking/dragging to ensure smooth seeking
+      if(videoRef.current) {
+          videoRef.current.pauseAsync();
+          setIsPlaying(false); // Update local state immediately
+      }
   };
 
   const handleSeekMove = (event: any) => {
@@ -360,11 +277,19 @@ export default function VideoPlayerScreen() {
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
+              // Commit the final seek position
               await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
-              // CRITICAL FIX: Ensure playback resumes only if it was playing before drag started
-              if (isPlaying) { 
+              
+              // <<< FIX 2: Resume playing only if it was playing before drag started >>>
+              if (wasPlayingBeforeSeek.current) {
                   await videoRef.current.playAsync();
+                  setIsPlaying(true); // Update state to Playing
+              } else {
+                  // If it was paused before dragging, keep it paused.
+                  setIsPlaying(false); // Update state to Paused
               }
+              
+              // Reset seeking state
               setIsSeeking(false);
               setSeekPosition(0);
           } catch (e) {
@@ -376,18 +301,15 @@ export default function VideoPlayerScreen() {
   };
 
   const handleLayout = (event: any) => {
-      // Capture the width of the progress bar background container
       progressBarWidth.current = event.nativeEvent.layout.width;
   };
 
 
-  // --- NEW DOUBLE TAP AND FULLSCREEN HANDLERS (Fixed Control Lag) ---
-  
+  // DOUBLE TAP AND SINGLE TAP CONTROL LOGIC
   const handleDoubleTap = (event: any) => {
     const now = Date.now();
-    const isDoubleTap = now - lastTapTime.current < 300; // 300ms window
+    const isDoubleTap = now - lastTapTime.current < 300; 
     
-    // Determine tap side
     const tapX = event.nativeEvent.locationX;
     const currentWidth = isFullscreen ? Dimensions.get('window').width : SCREEN_WIDTH; 
     
@@ -396,24 +318,23 @@ export default function VideoPlayerScreen() {
     
     if (isDoubleTap) {
       if (isLeft) {
-        seekVideo(-10); // 10 seconds backward
-        displaySeekFeedback('backward'); // <<< Display Feedback
+        seekVideo(-10); 
+        displaySeekFeedback('backward'); 
       } else if (isRight) {
-        seekVideo(10); // 10 seconds forward
-        displaySeekFeedback('forward'); // <<< Display Feedback
+        seekVideo(10); 
+        displaySeekFeedback('forward'); 
       }
       
-      // Reset tap time to prevent single tap action immediately after double tap
+      // Reset tap time and ensure controls are visible briefly
       lastTapTime.current = 0; 
-      setShowControls(true); // Show controls briefly after seeking
+      setShowControls(true); 
       return;
     }
     
     lastTapTime.current = now;
     
-    // Single Tap Logic (Fix 3: Ensures controls toggle quickly)
+    // Single Tap Logic (Fix for control lag)
     setTimeout(() => {
-        // Only toggle controls if no second tap occurred within 300ms
         if (Date.now() - lastTapTime.current >= 300) {
             setShowControls(!showControls);
         }
@@ -421,54 +342,26 @@ export default function VideoPlayerScreen() {
   };
   
   const toggleFullscreen = () => {
-    // Toggling local State to change UI/Layout.
     setIsFullscreen(prev => !prev);
-    // Note: For actual screen rotation, you need 'expo-screen-orientation'
   };
 
-
-  // Handlers (Simplified)
+  // Other Handlers (No Changes)
   const togglePlayPause = async () => {
     if (!videoRef.current) return;
-    if (isPlaying) {
-      await videoRef.current.pauseAsync();
-      setIsPlaying(false);
-      setShowControls(true);
-    } else {
-      await videoRef.current.playAsync();
-      setIsPlaying(true);
-    }
+    if (isPlaying) { await videoRef.current.pauseAsync(); setIsPlaying(false); setShowControls(true); } 
+    else { await videoRef.current.playAsync(); setIsPlaying(true); }
   };
-
+  
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
-  
   const handleShare = async () => {
     api.videos.share(videoId!);
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
+  const handleReport = () => { Alert.alert('Confirm Report', 'Are you sure you want to report this video for inappropriate content?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Report', style: 'destructive', onPress: () => reportMutation.mutate() }]); };
+  const handleDelete = () => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }]); };
+  const handleSave = () => { saveMutation.mutate(); }
 
-  // Handler with Custom Alert Confirmation
-  const handleReport = () => {
-       Alert.alert( // Using native Alert for CRITICAL CONFIRMATION step
-          'Confirm Report',
-          'Are you sure you want to report this video for inappropriate content?',
-          [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Report', style: 'destructive', onPress: () => reportMutation.mutate() }
-          ]
-      );
-  };
-  
-  // Handler with Custom Alert Confirmation
-  const handleDelete = () => {
-      Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])
-  };
-  
-  // Handler for Save in Menu
-  const handleSave = () => {
-      saveMutation.mutate();
-  }
 
   // Null Check
   if (isLoading || !video || !video.channel) { 
@@ -476,7 +369,7 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url);
-  const thumbnailUrl = getMediaUrl(video.thumbnail_url); // Get thumbnail for poster fix
+  const thumbnailUrl = getMediaUrl(video.thumbnail_url); 
   
   // Robust Channel Data Access
   const channelName = video.channel.name || 'Channel Name'; 
@@ -485,15 +378,15 @@ export default function VideoPlayerScreen() {
   const viewsDisplay = formatViews(video.views_count);
   const isOwner = video.user.id === user?.id; 
 
-  // Determine the position to display (current position or temporary seek position)
+  // Position for Progress Bar
   const displayPosition = isSeeking ? seekPosition : currentPosition;
   const progressPercentage = (displayPosition / (videoDuration || 1)) * 100;
 
   return (
-    // Conditional styling based on fullScreen state
+    // FIX 1: paddingTop is only applied when NOT in fullscreen
     <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
       
-      {/* 1. FIX: Header is removed using headerShown: false */}
+      {/* 1. FIX: Header is removed. */}
       <Stack.Screen options={{ headerShown: false }} /> 
       
       <StatusBar barStyle="light-content" hidden={isFullscreen} />
@@ -509,27 +402,24 @@ export default function VideoPlayerScreen() {
           shouldPlay={isPlaying}
           useNativeControls={false}
           
-          // <<< PERFORMANCE FIXES (Delay Load) >>>
-          usePoster={true} // Use poster image while video is loading
+          // FIX: Performance (Delay Load) - using Poster
+          usePoster={true} 
           posterSource={{ uri: thumbnailUrl }}
           posterStyle={StyleSheet.absoluteFillObject}
-          // <<< END PERFORMANCE FIXES >>>
           
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
-                 // CRITICAL: Only update currentPosition if we are NOT dragging/seeking
                  if (!isSeeking) { 
                      setCurrentPosition(status.positionMillis);
                  }
                  if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); trackVideoWatch(totalDurationSec); }
              }
           }}
-          // CRITICAL DEBUG: Add error logging for file access issues
           onError={(e) => console.log('CRITICAL EXPO VIDEO ERROR:', e)}
         />
         
-        {/* 2. FIX: SEEK FEEDBACK OVERLAY (Using Lucide Icons) */}
+        {/* 2. SEEK FEEDBACK OVERLAY (Using Lucide Icons) */}
         {showSeekIcon && (
             <View style={styles.seekOverlay}>
                 <View style={styles.seekIconContainer}>
@@ -538,17 +428,17 @@ export default function VideoPlayerScreen() {
                         : 
                         <ArrowBigLeft color="white" size={48} /> 
                     }
-                    {/* Display the seek amount (e.g., 10) next to the icon */}
+                    {/* Display the seek amount (10) */}
                     <Text style={styles.seekAmountText}>10</Text>
                 </View>
             </View>
         )}
         
-        {/* OVERLAY CONTROLS (Pressable modified to call handleDoubleTap) */}
+        {/* OVERLAY CONTROLS */}
         <Pressable style={styles.overlay} onPress={handleDoubleTap}>
           {showControls && (
             <View style={styles.controls}>
-              <View style={styles.topControlBar}>
+              <View style={[styles.topControlBar, {paddingTop: isFullscreen ? insets.top : 10}]}> 
                  <TouchableOpacity onPress={() => isFullscreen ? toggleFullscreen() : router.back()}><ArrowLeft color="white" size={24} /></TouchableOpacity>
               </View>
 
@@ -563,14 +453,12 @@ export default function VideoPlayerScreen() {
                 <Pressable
                     ref={progressBarRef}
                     style={styles.progressBarBg}
-                    onLayout={handleLayout} // Capture width
-                    onPressIn={handleSeekStart} // Start seeking/tapping
-                    onResponderMove={handleSeekMove} // Dragging
-                    onResponderRelease={handleSeekEnd} // End dragging/tap
+                    onLayout={handleLayout} 
+                    onPressIn={handleSeekStart} 
+                    onResponderMove={handleSeekMove} 
+                    onResponderRelease={handleSeekEnd} 
                 >
-                    {/* The actual progress bar track (background) */}
                     <View style={styles.progressBarTrack} />
-                    {/* The progress bar fill (foreground) */}
                     <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
                 </Pressable>
                 
@@ -693,7 +581,6 @@ export default function VideoPlayerScreen() {
 
       {/* --- MODALS (Comments & Description) --- */}
       
-      {/* Comments Modal (JSX SYNTAX ERROR FIXED) */}
       <Modal visible={showComments} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComments(false)}>
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
@@ -707,15 +594,12 @@ export default function VideoPlayerScreen() {
                     <View style={styles.commentItem}>
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
-                            
-                            {/* Corrected missing closing </Text> tag */}
                             <Text style={styles.commentUser}>
                                 {item.user.username} · 
                                 <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>
                                     {formatTimeAgo(item.created_at)}
                                 </Text>
                             </Text>
-                            
                             <Text style={styles.commentBody}>{item.content}</Text>
                         </View>
                     </View>
@@ -752,10 +636,10 @@ export default function VideoPlayerScreen() {
         isOwner={isOwner}
         onDelete={handleDelete}
         onReport={handleReport}
-        onSave={handleSave} // Passed the Save handler
+        onSave={handleSave} 
       />
       
-      {/* <<< UI FIX 1: CUSTOM TOAST COMPONENT (Displays custom alerts) >>> */}
+      {/* <<< CUSTOM TOAST COMPONENT >>> */}
       {showToast && (
            <View style={styles.customToast}>
                <Text style={styles.customToastText}>{toastMessage}</Text>
@@ -796,7 +680,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 5, // Below controls (10), above video (0)
+    zIndex: 5, 
   },
   seekIconContainer: {
     flexDirection: 'row',
@@ -815,7 +699,7 @@ const styles = StyleSheet.create({
   // <<< End Seek Feedback Overlay Styles >>>
 
   // Progress Bar (Now a Pressable)
-  progressBarBg: { flex: 1, height: 20, justifyContent: 'center', backgroundColor: 'transparent' }, // Increased height for easy press
+  progressBarBg: { flex: 1, height: 20, justifyContent: 'center', backgroundColor: 'transparent' }, 
   progressBarTrack: { 
       position: 'absolute', 
       height: 3, 
@@ -914,13 +798,13 @@ const styles = StyleSheet.create({
 
   // Menu Styles
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'flex-end', flexDirection: 'row' },
-  menuBox: { width: '100%', backgroundColor: '#1E1E1E', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' }, // Full width at bottom
+  menuBox: { width: '100%', backgroundColor: '#1E1E1E', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' }, 
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, gap: 16 },
   menuItemNoIcon: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingVertical: 12,
-      paddingHorizontal: 26, // Added padding to center text without icon
+      paddingHorizontal: 26, 
       justifyContent: 'flex-start',
   },
   menuItemDestructive: { borderTopWidth: 1, borderTopColor: '#333', marginTop: 5, paddingTop: 15 },
@@ -929,9 +813,9 @@ const styles = StyleSheet.create({
   // Custom Toast Styles
   customToast: {
     position: 'absolute',
-    bottom: 50, // Above navigation/input area
+    bottom: 50, 
     alignSelf: 'center',
-    backgroundColor: Colors.primary, // Pink/Theme color
+    backgroundColor: Colors.primary, 
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
