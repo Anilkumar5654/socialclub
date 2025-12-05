@@ -15,7 +15,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 // CRASH FIX: Removed import * as ScreenOrientation from 'expo-screen-orientation';
-// We only need Dimensions for the placeholder fullscreen logic.
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -338,7 +337,7 @@ export default function VideoPlayerScreen() {
   if (showLoader) { 
     return (
         <View style={[styles.container, styles.center]}>
-            {/* Hides header completely and uses current component's dark background for seamless transition */}
+            {/* FIX: Header is hidden during loading to prevent 'videos/player' title leak */}
             <Stack.Screen options={{ headerShown: false, title: '' }} />
             <ActivityIndicator size="large" color={Colors.primary} />
         </View>
@@ -357,7 +356,7 @@ export default function VideoPlayerScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       
-      {/* Set Header Title ONLY when loaded */}
+      {/* FIX: Header is shown ONLY when data is ready, displaying the video title */}
       <Stack.Screen options={{ headerShown: true, title: video?.title || 'Video Player' }} />
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
