@@ -177,7 +177,8 @@ export default function VideoPlayerScreen() {
                   shouldPlay: isPlaying 
               }); 
               
-              // 2. Add a tiny delay to ensure the ExpoAV library processes the jump 
+              // 2. Add a tiny delay (50ms) to ensure ExpoAV processes the command 
+              // before we force the UI update.
               await delay(50); 
               
               // 3. Update the main position state and reset seeking mode
