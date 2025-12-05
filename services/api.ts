@@ -90,7 +90,7 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const errorMessage = (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`;
+        const errorMessage = (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}: ${response.statusText}`;
         
         if (apiDebugLogger) {
           apiDebugLogger({
@@ -179,22 +179,19 @@ class ApiClient {
     report: async (postId: string, reason: string, description?: string) => this.request('/posts/action/report.php', { method: 'POST', body: JSON.stringify({ post_id: postId, reason, description }) }),
   };
 
+  // --- REELS MODULE (Corrected) ---
   reels = {
     getReels: async (page: number = 1, limit: number = 10) => this.request<{ reels: any[]; hasMore: boolean }>(`/reels?page=${page}&limit=${limit}`),
     getDetails: async (id: string) => this.request<{ reel: any }>(`/reels/details?id=${id}`),
     
     like: async (id: string) => this.request('/reels/action/like', { method: 'POST', body: JSON.stringify({ reel_id: id }) }),
     unlike: async (id: string) => this.request('/reels/action/unlike', { method: 'POST', body: JSON.stringify({ reel_id: id }) }),
-    
     comment: async (id: string, content: string) => this.request('/reels/action/comment.php', { method: 'POST', body: JSON.stringify({ reel_id: id, content }) }),
     getComments: async (id: string, page: number = 1) => this.request(`/reels/comments?reel_id=${id}&page=${page}`),
     deleteComment: async (commentId: string) => this.request(`/reels/action/comment?comment_id=${commentId}`, { method: 'DELETE' }),
-
     share: async (id: string) => this.request(`/reels/action/share`, { method: 'POST', body: JSON.stringify({ reel_id: id }) }),
     report: async (reelId: string, reason: string) => this.request('/reels/action/report.php', { method: 'POST', body: JSON.stringify({ reel_id: reelId, reason }) }),
-    
     delete: async (id: string) => this.request(`/posts/action/delete.php?id=${id}`, { method: 'POST', body: JSON.stringify({ post_id: id, type: 'reel' }) }),
-    
     upload: async (formData: FormData) => this.request('/reels/upload', { method: 'POST', body: formData }),
 
     trackView: async (reelId: string, watchDuration: number, totalDuration: number) => {
@@ -205,6 +202,7 @@ class ApiClient {
     }
   };
 
+  // --- VIDEOS MODULE (FINAL & CORRECTED) ---
   videos = {
     getVideos: async (page: number = 1, limit: number = 10, category?: string) => {
       const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
@@ -223,6 +221,11 @@ class ApiClient {
     view: async (id: string) => this.request(`/videos/action/view`, { method: 'POST', body: JSON.stringify({ video_id: id }) }),
     like: async (id: string) => this.request('/videos/action/like', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
     unlike: async (id: string) => this.request('/videos/action/unlike', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
+    
+    // NEW: Dislike/Undislike actions
+    dislike: async (id: string) => this.request('/videos/action/dislike', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
+    undislike: async (id: string) => this.request('/videos/action/undislike', { method: 'POST', body: JSON.stringify({ video_id: id }) }),
+
     comment: async (id: string, content: string) => this.request('/videos/action/comment', { method: 'POST', body: JSON.stringify({ video_id: id, content }) }),
     getComments: async (id: string, page: number = 1) => this.request(`/videos/comments?video_id=${id}&page=${page}`),
     share: async (id: string) => this.request(`/videos/action/share`, { method: 'POST', body: JSON.stringify({ video_id: id }) }),
@@ -251,8 +254,8 @@ class ApiClient {
   channels = {
     checkUserChannel: async (userId: string) => this.request(`/channels/check-user-channel?user_id=${userId}`),
     getChannel: async (channelId: string) => this.request<{ channel: any }>(`/channels/details?id=${channelId}`),
-    getVideos: async (channelId: string, page: number = 1) => this.request<{ videos: any[]; hasMore: boolean }>(`/channels/videos?channel_id=${channelId}&page=${page}`),
-    getReels: async (channelId: string, page: number = 1) => this.request<{ reels: any[]; hasMore: boolean }>(`/channels/reels?channel_id=${channelId}&page=${page}`),
+    getVideos: async (channelId: string, page: number = 1) => this.request(`/channels/videos?channel_id=${channelId}&page=${page}`),
+    getReels: async (channelId: string, page: number = 1) => this.request(`/channels/reels?channel_id=${channelId}&page=${page}`),
     subscribe: async (channelId: string) => this.request('/channels/action/subscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     unsubscribe: async (channelId: string) => this.request('/channels/action/unsubscribe', { method: 'POST', body: JSON.stringify({ channel_id: channelId }) }),
     create: async (data: any) => this.request('/channels/create', { method: 'POST', body: JSON.stringify(data) }),
