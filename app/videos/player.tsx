@@ -1,8 +1,3 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList,
-  TextInput, ActivityIndicator, Share, Modal, StatusBar, Pressable, Platform
-} from 'react-native';
 import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -10,6 +5,11 @@ import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download
 } from 'lucide-react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList,
+  TextInput, ActivityIndicator, Share, Modal, Pressable, StatusBar
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -17,6 +17,7 @@ import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -27,16 +28,18 @@ const getMediaUrl = (path: string | undefined) => {
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
-const formatViews = (views: number) => {
-  if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
-  if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
-  return views.toString();
+// FIX: Null-Safe Views Formatting (The Crash Fix)
+const formatViews = (views: number | undefined | null) => {
+  const safeViews = Number(views) || 0; // Ensures it's always a number (0 if null/undefined)
+  if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
+  if (safeViews >= 1000) return `${(safeViews / 1000).toFixed(1)}K`;
+  return safeViews.toString();
 };
 
-// FIX: Correct Duration Format (MM:SS)
+// FIX: Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
-    const sec = Number(seconds);
-    if (!sec || isNaN(sec)) return "00:00";
+    const sec = Number(seconds) || 0;
+    if (sec <= 0) return "00:00";
     
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -45,20 +48,19 @@ const formatDuration = (seconds: any) => {
     if (h > 0) {
         return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
 // --- COMPONENTS ---
 
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  const channelName = video.channel_name || video.user?.channel_name || 'Channel';
-  const channelAvatar = getMediaUrl(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
+  const channelName = video.channel_name || 'Channel';
+  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
   
   return (
     <TouchableOpacity style={styles.recCard} onPress={onPress} activeOpacity={0.9}>
       <View style={styles.recThumbContainer}>
         <Image source={{ uri: getMediaUrl(video.thumbnail_url) }} style={styles.recThumb} contentFit="cover" />
-        {/* DURATION BADGE FIX */}
         <View style={styles.recDuration}>
             <Text style={styles.recDurationText}>{formatDuration(video.duration)}</Text>
         </View>
@@ -68,7 +70,7 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
         <View style={styles.recTextCol}>
           <Text style={styles.recTitle} numberOfLines={2}>{video.title}</Text>
           <Text style={styles.recMeta} numberOfLines={1}>
-            {channelName} · {formatViews(video.views_count || 0)} views · {formatTimeAgo(video.created_at)}
+            {channelName} · {formatViews(video.views_count)} views · {formatTimeAgo(video.created_at)}
           </Text>
         </View>
       </View>
@@ -89,7 +91,7 @@ export default function VideoPlayerScreen() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
-  const [videoDuration, setVideoDuration] = useState(0); // In MS for progress bar
+  const [videoDuration, setVideoDuration] = useState(0); // In MS
   const [currentPosition, setCurrentPosition] = useState(0); // In MS
   const [totalDurationSec, setTotalDurationSec] = useState(0); // In Sec for API
 
@@ -128,36 +130,38 @@ export default function VideoPlayerScreen() {
   });
   const comments = commentsData?.comments || [];
 
+  // 4. Watch Time Tracker (Viral Logic)
+  const trackVideoWatch = useCallback((watchedSec: number) => {
+    if (videoId && watchedSec > 1) {
+      api.videos.trackWatch(videoId, watchedSec, totalDurationSec); 
+    }
+  }, [videoId, totalDurationSec]);
+
   // Initialize State
   useEffect(() => {
     if (video) {
-      setLikesCount(video.likes_count || 0);
-      setIsLiked(!!video.is_liked);
-      setIsSubscribed(!!video.is_subscribed);
-      setTotalDurationSec(Number(video.duration) || 0);
+      setLikesCount(video.likes || video.likes_count || 0);
+      setIsLiked(!!video.isLiked);
+      setIsSubscribed(!!video.isSubscribed);
+      setTotalDurationSec(Number(video.duration) || 0); // Set total duration in seconds
     }
   }, [video]);
 
-  // View Counter (Once per load)
+  // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
     if (videoId) api.videos.view(videoId);
-  }, [videoId]);
 
-  // Viral Logic: Watch Time Tracker
-  useEffect(() => {
     startTimeRef.current = Date.now();
     
     return () => {
-        // On Unmount / Change Video
+        // Track watch time on unmount/video change
         const endTime = Date.now();
         const watchedSec = (endTime - startTimeRef.current) / 1000;
-        if (videoId && watchedSec > 1) {
-            api.videos.trackWatch(videoId, watchedSec, totalDurationSec);
-        }
+        trackVideoWatch(watchedSec);
     };
   }, [videoId, totalDurationSec]);
 
-  // Controls Logic
+  // Controls Auto-Hide
   useEffect(() => {
     if (showControls && isPlaying) {
       if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
@@ -195,6 +199,10 @@ export default function VideoPlayerScreen() {
     }
   };
 
+  const handleScreenTap = () => setShowControls(!showControls);
+
+  const handleLike = () => { likeMutation.mutate(); };
+  
   const handleShare = async () => {
     api.videos.share(videoId!);
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
@@ -207,15 +215,18 @@ export default function VideoPlayerScreen() {
   const videoUrl = getMediaUrl(video.video_url);
   const channelName = video.channel_name || 'Channel Name';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
+  const subscriberCount = video.subscribers_count || 0;
+  const viewsDisplay = formatViews(video.views_count);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-      {/* --- PLAYER AREA --- */}
+      {/* PLAYER AREA */}
       <View style={styles.playerContainer}>
         <ExpoVideo
+          key={videoId} 
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.video}
@@ -226,13 +237,13 @@ export default function VideoPlayerScreen() {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
                  setCurrentPosition(status.positionMillis);
-                 if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); }
+                 if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); trackVideoWatch(totalDurationSec); }
              }
           }}
         />
         
         {/* OVERLAY CONTROLS */}
-        <Pressable style={styles.overlay} onPress={() => setShowControls(!showControls)}>
+        <Pressable style={styles.overlay} onPress={handleScreenTap}>
           {showControls && (
             <View style={styles.controls}>
               <View style={styles.topControlBar}>
@@ -261,7 +272,7 @@ export default function VideoPlayerScreen() {
         {/* 1. Title & Views */}
         <View style={styles.infoSection}>
             <Text style={styles.title}>{video.title}</Text>
-            <Text style={styles.meta}>{formatViews(video.views_count)} views · {formatTimeAgo(video.created_at)}</Text>
+            <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
         </View>
 
         {/* 2. CHANNEL ROW */}
@@ -270,7 +281,7 @@ export default function VideoPlayerScreen() {
                 <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
                 <View>
                     <Text style={styles.channelName}>{channelName}</Text>
-                    <Text style={styles.subsText}>{formatViews(video.subscribers_count || 0)} subscribers</Text>
+                    <Text style={styles.subsText}>{formatViews(subscriberCount)} subscribers</Text>
                 </View>
             </View>
             <TouchableOpacity 
@@ -287,27 +298,28 @@ export default function VideoPlayerScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
             
             {/* LIKE (Pill Shape with Text) */}
-            <TouchableOpacity style={[styles.actionPillLike, isLiked && {backgroundColor: 'rgba(225, 48, 108, 0.15)'}]} onPress={() => likeMutation.mutate()}>
+            <TouchableOpacity style={[styles.actionPillLike, isLiked && {backgroundColor: 'rgba(225, 48, 108, 0.15)'}]} onPress={handleLike}>
                 <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
-                <View style={styles.separator} />
                 <Text style={[styles.actionTextLike, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
-            </TouchableOpacity>
-
-            {/* OTHER BUTTONS (Round Icons) */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => {/* Dislike Logic */}}>
+                <View style={styles.separator} />
                 <ThumbsDown size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconBtnRound} onPress={handleShare}>
-                <Share2 size={20} color={Colors.text} />
+            {/* OTHER BUTTONS (Round Icons) */}
+            <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
+                <Download size={20} color={Colors.text} />
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowComments(true)}>
                 <MessageCircle size={20} color={Colors.text} />
             </TouchableOpacity>
 
-             <TouchableOpacity style={styles.iconBtnRound} onPress={() => { Alert.alert("Download", "Starting download...") }}>
-                <Download size={20} color={Colors.text} />
+            <TouchableOpacity style={styles.iconBtnRound} onPress={handleShare}>
+                <Share2 size={20} color={Colors.text} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconBtnRound} onPress={() => { Alert.alert('Menu', 'More options...') }}>
+                <MoreVertical size={20} color={Colors.text} />
             </TouchableOpacity>
         </ScrollView>
 
@@ -322,8 +334,8 @@ export default function VideoPlayerScreen() {
         {/* 5. COMMENTS TEASER */}
         <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
             <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
-                <Text style={styles.commentsHeader}>Comments {comments.length}</Text>
-                <ChevronDown size={16} color="#666" />
+                <Text style={styles.commentsHeader}>Comments</Text>
+                <Text style={styles.commentsCount}>{comments.length}</Text>
             </View>
             {comments.length > 0 ? (
                 <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
@@ -331,7 +343,7 @@ export default function VideoPlayerScreen() {
                     <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
                 </View>
             ) : (
-                <Text style={{color:Colors.textSecondary, fontSize:13}}>Add a public comment...</Text>
+                <Text style={styles.commentsCount}>Add a public comment...</Text>
             )}
         </TouchableOpacity>
 
@@ -352,7 +364,7 @@ export default function VideoPlayerScreen() {
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
                  <Text style={styles.modalTitle}>Comments</Text>
-                 <TouchableOpacity onPress={() => setShowComments(false)}><Text style={{fontWeight:'600', fontSize:16}}>Close</Text></TouchableOpacity>
+                 <TouchableOpacity onPress={() => setShowComments(false)}><Text style={{fontWeight:'600', fontSize:16, color:Colors.primary}}>Close</Text></TouchableOpacity>
              </View>
              <FlatList 
                 data={comments} 
@@ -368,8 +380,8 @@ export default function VideoPlayerScreen() {
                 )} 
              />
              <View style={styles.inputArea}>
-                 <TextInput style={styles.input} placeholder="Add a comment..." value={commentText} onChangeText={setCommentText} />
-                 <TouchableOpacity onPress={() => commentText.trim() && commentMutation.mutate(commentText)}><Send color={Colors.primary} /></TouchableOpacity>
+                 <TextInput style={styles.input} placeholder="Add a comment..." value={commentText} onChangeText={setCommentText} placeholderTextColor="#888" />
+                 <TouchableOpacity onPress={() => commentText.trim() && commentMutation.mutate(commentText)}><Send color={commentText.trim() ? Colors.primary : '#666'} /></TouchableOpacity>
              </View>
          </View>
       </Modal>
@@ -387,7 +399,7 @@ const styles = StyleSheet.create({
   video: { width: '100%', height: '100%' },
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'space-between' },
-  topControlBar: { flexDirection: 'row', padding: 10, paddingTop: 40 },
+  topControlBar: { flexDirection: 'row', padding: 10 },
   playBtn: { alignSelf: 'center' },
   bottomControlBar: { flexDirection: 'row', alignItems: 'center', padding: 10, paddingBottom: 10 },
   timeText: { color: '#fff', fontSize: 12, marginRight: 10, fontWeight: '600' },
@@ -399,21 +411,9 @@ const styles = StyleSheet.create({
   infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
   meta: { fontSize: 12, color: Colors.textSecondary },
-  
-  // Channel
-  channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: '#222' },
-  channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333' },
-  channelName: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  subsText: { color: Colors.textSecondary, fontSize: 12 },
-  subBtn: { backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
-  subBtnActive: { backgroundColor: '#333', borderWidth: 1, borderColor: '#444' },
-  subText: { color: '#000', fontWeight: '600', fontSize: 13 },
-  subTextActive: { color: '#fff' },
 
-  // Actions Row (New Design)
+  // Actions Row
   actionsScroll: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
-  
-  // Like Pill Button
   actionPillLike: { 
       flexDirection: 'row', alignItems: 'center', 
       backgroundColor: '#222', 
@@ -424,7 +424,6 @@ const styles = StyleSheet.create({
   separator: { width: 1, height: 18, backgroundColor: '#444' },
   actionTextLike: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
-  // Round Buttons for others
   iconBtnRound: {
       width: 44, height: 44, borderRadius: 22,
       backgroundColor: '#222',
@@ -436,9 +435,20 @@ const styles = StyleSheet.create({
   descText: { fontSize: 13, color: Colors.text, lineHeight: 18 },
   moreText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
 
+  // Channel
+  channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#222' },
+  channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333' },
+  channelName: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  subsText: { color: Colors.textSecondary, fontSize: 12 },
+  subBtn: { backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  subBtnActive: { backgroundColor: '#333', borderWidth: 1, borderColor: '#444' },
+  subText: { color: '#000', fontWeight: '600', fontSize: 13 },
+  subTextActive: { color: '#fff' },
+
   // Comments Teaser
   commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', margin: 12, marginTop: 8, borderRadius: 10 },
   commentsHeader: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  commentsCount: { color: Colors.textSecondary },
 
   // Recommended Cards
   recSection: { paddingBottom: 40 },
@@ -454,13 +464,13 @@ const styles = StyleSheet.create({
   recMeta: { color: Colors.textSecondary, fontSize: 12 },
 
   // Modal
-  modalContainer: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#eee', alignItems:'center' },
-  modalTitle: { fontSize: 18, fontWeight: '700' },
-  inputArea: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#eee', alignItems: 'center', paddingBottom: 30 },
-  input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, padding: 10, marginRight: 10 },
-  commentItem: { flexDirection: 'row', padding: 16, gap: 12 },
-  commentAvatar: { width: 32, height: 32, borderRadius: 16 },
-  commentUser: { fontWeight: '700', fontSize: 13, marginBottom: 2 },
-  commentBody: { fontSize: 14, color: '#333' }
+  modalContainer: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#222', alignItems:'center' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  commentItem: { flexDirection: 'row', padding: 16, gap: 12, borderBottomWidth: 1, borderColor: '#111' },
+  commentAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#333' },
+  commentUser: { fontWeight: '700', fontSize: 13, color: Colors.text, marginBottom: 2 },
+  commentBody: { fontSize: 14, color: Colors.textSecondary },
+  inputArea: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#222', alignItems: 'center', paddingBottom: 30 },
+  input: { flex: 1, backgroundColor: '#111', borderRadius: 20, padding: 10, marginRight: 10, color: Colors.text },
 });
