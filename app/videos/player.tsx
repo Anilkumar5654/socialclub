@@ -3,7 +3,9 @@ import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
-  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X, Save, Flag, Trash2
+  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X,
+  // ADDED MISSING ICONS FOR MODAL
+  Save, Flag, Trash2 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -29,6 +31,7 @@ const getMediaUrl = (path: string | undefined) => {
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
+// FIX: Null-Safe Views Formatting (Crash Fix)
 const formatViews = (views: number | undefined | null) => {
   const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
@@ -36,6 +39,7 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
+// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -46,7 +50,6 @@ const formatDuration = (seconds: any) => {
 };
 
 // --- RECOMMENDED CARD ---
-
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
@@ -72,18 +75,16 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL ---
-function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
+// --- OPTIONS MENU MODAL (UPDATED LOGIC) ---
+function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={onClose}>
                 <View style={styles.menuBox}>
-                    <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onSave(); }}>
-                        <Save size={20} color={Colors.text} /><Text style={styles.menuText}>Save Video</Text>
-                    </TouchableOpacity>
                     
+                    {/* ONLY REPORT REMAINS FROM ORIGINAL REQUEST */}
                     <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onReport(); }}>
-                        <Flag size={20} color={Colors.text} /><Text style={styles.menuText}>Report</Text>
+                        <Flag size={20} color={Colors.text} /><Text style={styles.menuText}>Report Video</Text>
                     </TouchableOpacity>
 
                     {isOwner && (
@@ -92,7 +93,7 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
                         </TouchableOpacity>
                     )}
 
-                    <TouchableOpacity style={styles.menuItem} onPress={onClose}>
+                    <TouchableOpacity style={[styles.menuItem, !isOwner && styles.menuItemDestructive]} onPress={onClose}>
                         <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
                     </TouchableOpacity>
                 </View>
@@ -100,6 +101,7 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
         </Modal>
     );
 }
+
 
 // --- MAIN PLAYER SCREEN ---
 
@@ -126,9 +128,9 @@ export default function VideoPlayerScreen() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   
   // Modals
+  const [showDescription, setShowDescription] = useState(false); 
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const [showDescription, setShowDescription] = useState(false); // Description Modal State
   const [commentText, setCommentText] = useState('');
 
   // 1. Fetch Video Details
@@ -146,11 +148,13 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (Viral Logic)
+  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
-      const deviceId = await getDeviceId(); 
-      api.videos.trackWatch(videoId, watchedSec, totalDurationSec, deviceId); 
+      const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
+      // Note: completionRate should be watchedSec / totalDurationSec
+      const completionRate = Math.min(1, watchedSec / totalDurationSec);
+      api.videos.trackWatch(videoId, watchedSec, completionRate); 
     }
   }, [videoId, totalDurationSec]);
 
@@ -160,7 +164,7 @@ export default function VideoPlayerScreen() {
       setLikesCount(video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); 
+      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
     }
   }, [video]);
 
@@ -219,18 +223,25 @@ export default function VideoPlayerScreen() {
     onSuccess: () => { setCommentText(''); refetchComments(); }
   });
   
+  // Report Mutation (Updated Success Message for better UI match)
   const reportMutation = useMutation({
-      mutationFn: () => api.posts.report(videoId, 'Inappropriate'),
-      onSuccess: () => { Alert.alert('Reported', 'Thank you for reporting this video.', [{text:'OK'}]); }
+      mutationFn: () => api.videos.report(videoId!, 'Inappropriate'),
+      onSuccess: () => { 
+          Alert.alert('Report Sent', 'Thank you for reporting this video. We will review it shortly.', [
+              {text:'OK', style: 'default'}
+          ]);
+      }
   });
   
+  // Delete Mutation
   const deleteMutation = useMutation({
-      mutationFn: () => api.posts.delete(videoId),
-      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK', onPress: () => router.back()}]); }
+      mutationFn: () => api.videos.delete(videoId!),
+      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK'}]); router.back(); }
   });
 
+  // Save Mutation (Used by the round icon button)
   const saveMutation = useMutation({
-      mutationFn: () => api.videos.save(videoId!), // Placeholder, assuming you will add this API
+      mutationFn: () => api.videos.save(videoId!),
       onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
   });
 
@@ -258,18 +269,34 @@ export default function VideoPlayerScreen() {
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
 
+  const handleReport = () => {
+      // Confirmation Alert before reporting
+       Alert.alert(
+          'Confirm Report',
+          'Are you sure you want to report this video for inappropriate content?',
+          [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Report', style: 'destructive', onPress: () => reportMutation.mutate() }
+          ]
+      );
+  };
+  
+  const handleDelete = () => {
+      Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])
+  };
+
   if (isLoading || !video) {
     return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={Colors.primary} /></View>;
   }
 
   const videoUrl = getMediaUrl(video.video_url);
   
-  // Final Data Check (Using optional chaining for safety)
-  const channelName = video.channel?.name || 'Channel Name'; 
-  const channelAvatar = getMediaUrl(video.channel?.avatar || 'assets/c_profile.jpg');
-  const subscriberCount = video.channel?.subscribers_count || 0;
+  // Robust Channel Data Access (Guaranteed by PHP fallback)
+  const channelName = video.channel.name || 'Channel Name'; 
+  const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
+  const subscriberCount = video.channel.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
-  const isOwner = video.user?.id === user?.id; // Check ownership
+  const isOwner = video.user.id === user?.id; // Check ownership
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -329,7 +356,7 @@ export default function VideoPlayerScreen() {
         </View>
 
         {/* 2. CHANNEL ROW */}
-        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel?.id } })}>
+        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
             <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
                 <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
                 <View>
@@ -350,7 +377,7 @@ export default function VideoPlayerScreen() {
         {/* 3. ACTIONS (LIKE/DISLIKE/SHARE/DOWNLOAD) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
             
-            {/* LIKE/DISLIKE PILL (FIXED LOGIC) */}
+            {/* LIKE/DISLIKE PILL */}
             <View style={styles.actionPill}>
                 <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
                     <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
@@ -365,6 +392,10 @@ export default function VideoPlayerScreen() {
             </View>
 
             {/* OTHER BUTTONS (Round Icons) */}
+             <TouchableOpacity style={styles.iconBtnRound} onPress={() => { saveMutation.mutate() }}>
+                <Save size={20} color={Colors.text} />
+            </TouchableOpacity>
+            
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
                 <Download size={20} color={Colors.text} />
             </TouchableOpacity>
@@ -382,12 +413,15 @@ export default function VideoPlayerScreen() {
             </TouchableOpacity>
         </ScrollView>
 
-        {/* 4. DESCRIPTION EXPANDER (NEW MODAL TRIGGER) */}
-        <TouchableOpacity style={styles.descContainer} onPress={() => setShowDescription(true)}>
-             <Text numberOfLines={2} style={styles.descText}>
-                {video.description || 'No description'}
+        {/* 4. DESCRIPTION TEASER (NEW STYLED CARD) */}
+        <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
+            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
+                <Text style={styles.commentsHeader}>Description</Text>
+                <ChevronDown size={18} color={Colors.textSecondary} />
+            </View>
+             <Text numberOfLines={2} style={styles.descTextCard}>
+                {video.description || 'No description provided.'}
              </Text>
-             <Text style={styles.moreText}>Show details</Text>
         </TouchableOpacity>
 
         {/* 5. COMMENTS TEASER */}
@@ -398,7 +432,7 @@ export default function VideoPlayerScreen() {
             </View>
             {comments.length > 0 ? (
                 <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
-                    <Image source={{ uri: getMediaUrl(comments[0].user?.avatar) }} style={{width:24, height:24, borderRadius:12}} />
+                    <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
                     <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
                 </View>
             ) : (
@@ -434,7 +468,7 @@ export default function VideoPlayerScreen() {
                     <View style={styles.commentItem}>
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
-                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></Text>
+                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></View>
                             <Text style={styles.commentBody}>{item.content}</Text>
                         </View>
                     </View>
@@ -469,9 +503,8 @@ export default function VideoPlayerScreen() {
         visible={showMenu}
         onClose={() => setShowMenu(false)}
         isOwner={isOwner}
-        onDelete={() => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])}}
-        onReport={() => { Alert.alert('Report', 'Please report through the website menu.', [{text:'OK'}]) }}
-        onSave={() => { saveMutation.mutate(); }}
+        onDelete={handleDelete}
+        onReport={handleReport}
       />
 
 
@@ -500,8 +533,10 @@ const styles = StyleSheet.create({
   infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
   meta: { fontSize: 12, color: Colors.textSecondary },
-  descTeaser: { flexDirection:'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8},
-  descText: { fontSize: 13, color: Colors.text, flex: 1, marginRight: 10 },
+  
+  // New Description Card Style (Mirroring Comments Teaser)
+  descContainerCard: { padding: 12, backgroundColor: '#1a1a1a', marginHorizontal: 12, marginTop: 8, marginBottom: 12, borderRadius: 10 },
+  descTextCard: { fontSize: 13, color: Colors.text, flex: 1, lineHeight: 18 },
   descTextFull: { fontSize: 14, color: Colors.text, lineHeight: 22 },
 
   // Actions Row (FIX 3)
@@ -548,7 +583,7 @@ const styles = StyleSheet.create({
   subTextActive: { color: '#fff' },
 
   // Comments Teaser
-  commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', margin: 12, borderRadius: 10 },
+  commentsTeaser: { padding: 12, backgroundColor: '#1a1a1a', marginHorizontal: 12, marginBottom: 12, borderRadius: 10 },
   commentsHeader: { color: '#fff', fontWeight: '700', fontSize: 14 },
   commentsCount: { color: Colors.textSecondary },
 
@@ -577,8 +612,8 @@ const styles = StyleSheet.create({
   input: { flex: 1, backgroundColor: '#111', borderRadius: 20, padding: 10, marginRight: 10, color: Colors.text },
 
   // Menu Styles
-  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  menuBox: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' },
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'flex-end', flexDirection: 'row' },
+  menuBox: { width: '100%', backgroundColor: '#1E1E1E', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' }, // Full width at bottom
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, gap: 16 },
   menuItemDestructive: { borderTopWidth: 1, borderTopColor: '#333', marginTop: 5, paddingTop: 15 },
   menuText: { color: Colors.text, fontSize: 16, fontWeight: '600' }
