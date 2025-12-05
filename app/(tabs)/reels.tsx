@@ -7,7 +7,8 @@ import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useIsFocused, router } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router'; // REMOVED useIsFocused from here
+import { useIsFocused } from '@react-navigation/native'; // CORRECT IMPORT HERE
 import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, X, Send, Trash2, Flag } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -137,10 +138,10 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
   const heartScale = useRef(new Animated.Value(0)).current;
   const lastTap = useRef<number | null>(null);
   
-  // App State Logic (Pause on Minimize)
+  // Pause Logic
   const appState = useRef(AppState.currentState);
   const [appActive, setAppActive] = useState(appState.current === 'active');
-  const isFocused = useIsFocused(); 
+  const isFocused = useIsFocused(); // Use hook from correct package
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -150,14 +151,12 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
     return () => subscription.remove();
   }, []);
 
-  // Play Logic: Only play if (Index Active) AND (Screen Focused) AND (App Foreground)
   useEffect(() => {
     if (!videoRef.current) return;
     if (isActive && isFocused && appActive) {
       videoRef.current.playAsync();
     } else {
       videoRef.current.pauseAsync();
-      // Only reset position if we left the screen entirely (not just minimized)
       if (!isFocused) videoRef.current.setPositionAsync(0); 
     }
   }, [isActive, isFocused, appActive]);
@@ -181,7 +180,7 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
   };
 
   const handleShare = async () => {
-      api.reels.share(item.id); // Track in DB
+      api.reels.share(item.id);
       try {
           await Share.share({
               message: `Check out this reel: https://moviedbr.com/reels/${item.id}`,
