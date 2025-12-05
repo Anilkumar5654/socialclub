@@ -1,13 +1,13 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, FlatList, TouchableOpacity,
-  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, RefreshControl, AppState
+  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, Alert, RefreshControl, AppState
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, router } from 'expo-router'; 
+import { useFocusEffect } from 'expo-router'; 
 import { useIsFocused } from '@react-navigation/native'; 
 import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, X, Send, Trash2, Flag, ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,7 +21,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BOTTOM_TAB_HEIGHT = Platform.OS === 'ios' ? 80 : 50; 
 const ACTUAL_HEIGHT = SCREEN_HEIGHT - BOTTOM_TAB_HEIGHT;
 
-// --- CUSTOM ALERT COMPONENT ---
+// --- CUSTOM ALERT ---
 const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText = 'Confirm', isDestructive = false }: any) => {
   if (!visible) return null;
   return (
@@ -46,23 +46,39 @@ const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText
   );
 };
 
-// --- REPORT MODAL ---
+// --- REPORT MODAL (FIXED) ---
 const ReportModal = ({ visible, onClose, onReport }: any) => {
-    const reasons = ["Spam", "Sexual Content", "Harassment", "Violent", "False Info", "Other"];
+    const reasons = [
+        "Spam", 
+        "Sexual Content", 
+        "Harassment or Bullying", 
+        "Violent or Repulsive", 
+        "False Information", 
+        "Scam or Fraud",
+        "Other"
+    ];
+
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
                 <View style={styles.reportContent}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Report</Text>
+                        <Text style={styles.modalTitle}>Report Reel</Text>
                         <TouchableOpacity onPress={onClose}><X color="#fff" size={24}/></TouchableOpacity>
                     </View>
-                    <Text style={{color:'#aaa', marginBottom:15}}>Why are you reporting this reel?</Text>
-                    {reasons.map(r => (
-                        <TouchableOpacity key={r} style={styles.reportItem} onPress={() => onReport(r)}>
-                            <Text style={styles.reportText}>{r}</Text><ChevronRight color="#666"/>
-                        </TouchableOpacity>
-                    ))}
+                    
+                    <Text style={{color:'#aaa', marginBottom:15, fontSize: 14}}>Please select a reason:</Text>
+                    
+                    <FlatList
+                        data={reasons}
+                        keyExtractor={(item) => item}
+                        renderItem={({ item }) => (
+                            <TouchableOpacity style={styles.reportItem} onPress={() => onReport(item)}>
+                                <Text style={styles.reportText}>{item}</Text>
+                                <ChevronRight size={20} color="#666" />
+                            </TouchableOpacity>
+                        )}
+                    />
                 </View>
             </View>
         </Modal>
@@ -150,17 +166,17 @@ const ReelOptionsModal = ({ visible, onClose, isOwner, onDelete, onReportClick }
 );
 
 // --- REEL ITEM ---
-const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, openComments, openOptions, onDurationUpdate }: any) => {
+const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscribe, onDurationUpdate, openComments, openOptions }: any) => {
+    const insets = useSafeAreaInsets();
     const videoRef = useRef<Video>(null);
     const isFocused = useIsFocused();
     const appState = useRef(AppState.currentState);
     const [appActive, setAppActive] = useState(appState.current === 'active');
     
-    // NEW: Manual Pause State
+    // Manual Pause State
     const [userPaused, setUserPaused] = useState(false);
 
     const heartScale = useRef(new Animated.Value(0)).current;
-    const insets = useSafeAreaInsets();
     const lastTap = useRef<number | null>(null);
 
     useEffect(() => {
@@ -168,7 +184,6 @@ const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, open
         return () => sub.remove();
     }, []);
 
-    // Logic: Play only if Active + Screen Focused + App Active + User Didn't Pause
     useEffect(() => {
         if (!videoRef.current) return;
         if (isActive && isFocused && appActive && !userPaused) {
@@ -177,23 +192,25 @@ const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, open
             videoRef.current.pauseAsync();
             if (!isActive) {
                 videoRef.current.setPositionAsync(0);
-                setUserPaused(false); // Reset pause when scrolled away
+                setUserPaused(false); 
             }
         }
     }, [isActive, isFocused, appActive, userPaused]);
 
     const handleTap = () => {
         const now = Date.now();
-        const DOUBLE_PRESS_DELAY = 300;
-        if (lastTap.current && (now - lastTap.current) < DOUBLE_PRESS_DELAY) {
-            // Double Tap -> Like
+        if (lastTap.current && (now - lastTap.current) < 300) {
             if (!item.is_liked) toggleLike(item.id);
             animateHeart();
+            lastTap.current = null;
         } else {
-            // Single Tap -> Toggle Play/Pause
             lastTap.current = now;
-            // Add small delay to distinguish single/double tap if needed, but immediate toggle feels snappier
-            setUserPaused(prev => !prev);
+            setTimeout(() => {
+                if (lastTap.current === now) { // Only toggle if no double tap happened
+                    setUserPaused(prev => !prev);
+                    lastTap.current = null;
+                }
+            }, 300);
         }
     };
 
@@ -219,7 +236,6 @@ const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, open
                 <View style={styles.videoWrapper}>
                     <Video ref={videoRef} source={{ uri: getUrl(item.video_url) }} style={styles.video} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && isFocused && appActive && !userPaused} onPlaybackStatusUpdate={(s:any) => { if(s.isLoaded && s.durationMillis && isActive) onDurationUpdate(item.id, s.durationMillis/1000); }} posterSource={{ uri: getUrl(item.thumbnail_url) }} />
                     
-                    {/* Pause Icon Overlay */}
                     {userPaused && <View style={styles.centerOverlay}><View style={styles.pauseCircle}><View style={styles.playIcon}/></View></View>}
 
                     <View style={styles.centerHeart}><Animated.View style={{ transform: [{ scale: heartScale }] }}><Heart size={100} color="white" fill="white" /></Animated.View></View>
@@ -264,6 +280,7 @@ export default function ReelsScreen() {
     const [page, setPage] = useState(1);
     const [commentsVisible, setCommentsVisible] = useState(false);
     const [optionsVisible, setOptionsVisible] = useState(false);
+    const [reportVisible, setReportVisible] = useState(false);
     const [activeReel, setActiveReel] = useState<any>(null);
     
     // Alert State
@@ -321,6 +338,7 @@ export default function ReelsScreen() {
     const reportMutation = useMutation({
         mutationFn: (reason: string) => api.reels.report(activeReel.id, reason),
         onSuccess: () => {
+             setReportVisible(false);
              showAlert({ title: 'Reported', message: 'Thanks for helping us.', confirmText: 'OK', onConfirm: () => setAlertConfig({visible: false}) });
         }
     });
@@ -375,9 +393,10 @@ export default function ReelsScreen() {
             {activeReel && <ReelOptionsModal visible={optionsVisible} onClose={() => setOptionsVisible(false)} 
                 isOwner={String(activeReel.user_id) === String(currentUser?.id)} 
                 onDelete={() => showAlert({ title: 'Delete', message: 'Are you sure?', isDestructive: true, confirmText: 'Delete', onConfirm: () => deleteMutation.mutate(activeReel.id) })}
-                onReportClick={() => { setOptionsVisible(false); setTimeout(() => showAlert({ title: 'Report', message: 'Select reason', confirmText: 'Spam', onConfirm: () => reportMutation.mutate('Spam') }), 300); }} 
+                onReportClick={() => { setOptionsVisible(false); setTimeout(() => setReportVisible(true), 300); }} 
             />}
 
+            <ReportModal visible={reportVisible} onClose={() => setReportVisible(false)} onReport={(r:string) => reportMutation.mutate(r)} />
             <CustomAlert {...alertConfig} />
         </View>
     );
@@ -395,7 +414,7 @@ const styles = StyleSheet.create({
     centerHeart: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5 },
     centerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 4 },
     pauseCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-    playIcon: { width: 0, height: 0, borderLeftWidth: 20, borderLeftColor: '#fff', borderTopWidth: 12, borderTopColor: 'transparent', borderBottomWidth: 12, borderBottomColor: 'transparent', marginLeft: 4 }, // Simple CSS Triangle
+    playIcon: { width: 0, height: 0, borderLeftWidth: 20, borderLeftColor: '#fff', borderTopWidth: 12, borderTopColor: 'transparent', borderBottomWidth: 12, borderBottomColor: 'transparent', marginLeft: 4 },
     rightActions: { position: 'absolute', right: 10, bottom: 100, zIndex: 20, alignItems: 'center', gap: 20 },
     actionBtn: { alignItems: 'center' },
     actionText: { color: '#fff', marginTop: 5, fontSize: 13, fontWeight: '600' },
