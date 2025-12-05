@@ -67,6 +67,9 @@ export default function VideoPlayerScreen() {
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
+  // <<< CRITICAL SEEKING STATE >>>
+  const wasPlayingBeforeSeek = useRef(false); 
+  
 
   // Logic & UI State
   const [isLiked, setIsLiked] = useState(false);
@@ -153,7 +156,20 @@ export default function VideoPlayerScreen() {
       setSeekPosition(newPositionMillis);
   };
 
-  const handleSeekStart = (event: any) => { 
+  // <<< NEW PAUSE-JUMP-PLAY LOGIC START >>>
+  const handleSeekStart = async (event: any) => { 
+      if (!videoRef.current) return;
+      
+      // 1. Save the playback state and force pause
+      const status = await videoRef.current.getStatusAsync();
+      wasPlayingBeforeSeek.current = status?.isPlaying || false; 
+
+      if (videoRef.current) {
+          await videoRef.current.pauseAsync();
+          setIsPlaying(false);
+      }
+      
+      // 2. Enter seeking mode
       const initialSeekPos = isSeeking ? seekPosition : currentPosition;
       setSeekPosition(initialSeekPos);
       setIsSeeking(true);
@@ -164,21 +180,22 @@ export default function VideoPlayerScreen() {
       if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
   };
 
-  // Utility function for delay
-  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  // <<< CRITICAL FIX: FINAL SEEK JUMP AND ASYNC TIMING RESOLUTION >>>
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
-              // 1. Commit the seek command to the player
+              // 1. Commit the seek command to the player (keep paused during jump)
               await videoRef.current.setStatusAsync({ 
                   positionMillis: seekPosition,
-                  shouldPlay: isPlaying 
+                  shouldPlay: false // Explicitly keep it paused during the jump process
               }); 
               
-              // 2. Add a tiny delay (50ms) to ensure the ExpoAV library processes the jump 
-              await delay(50); 
+              // 2. Resume playback only if it was playing before drag started
+              if (wasPlayingBeforeSeek.current) {
+                  await videoRef.current.playAsync();
+                  setIsPlaying(true);
+              } else {
+                  setIsPlaying(false);
+              }
               
               // 3. Update the main position state and reset seeking mode
               setCurrentPosition(seekPosition);
@@ -191,7 +208,8 @@ export default function VideoPlayerScreen() {
           }
       }
   };
-  // <<< END CRITICAL FIX >>>
+  // <<< NEW PAUSE-JUMP-PLAY LOGIC END >>>
+
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
@@ -290,7 +308,7 @@ export default function VideoPlayerScreen() {
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
-                 if (!isSeeking) { 
+                 if (!isSeeking) { // Controlled update logic
                      setCurrentPosition(status.positionMillis);
                  }
                  if (status.didJustFinish) { 
