@@ -1,14 +1,15 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, FlatList, TouchableOpacity,
-  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, Alert, RefreshControl, AppState
+  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, RefreshControl, AppState, ScrollView
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect } from 'expo-router'; 
-import { useIsFocused } from '@react-navigation/native'; 
+import { useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, X, Send, Trash2, Flag, ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -49,13 +50,7 @@ const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText
 // --- REPORT MODAL (FIXED) ---
 const ReportModal = ({ visible, onClose, onReport }: any) => {
     const reasons = [
-        "Spam", 
-        "Sexual Content", 
-        "Harassment or Bullying", 
-        "Violent or Repulsive", 
-        "False Information", 
-        "Scam or Fraud",
-        "Other"
+        "Spam", "Sexual Content", "Harassment or Bullying", "Violent or Repulsive", "False Information", "Scam or Fraud", "Other"
     ];
 
     return (
@@ -66,19 +61,15 @@ const ReportModal = ({ visible, onClose, onReport }: any) => {
                         <Text style={styles.modalTitle}>Report Reel</Text>
                         <TouchableOpacity onPress={onClose}><X color="#fff" size={24}/></TouchableOpacity>
                     </View>
-                    
-                    <Text style={{color:'#aaa', marginBottom:15, fontSize: 14}}>Please select a reason:</Text>
-                    
-                    <FlatList
-                        data={reasons}
-                        keyExtractor={(item) => item}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity style={styles.reportItem} onPress={() => onReport(item)}>
+                    <Text style={{color:'#aaa', marginBottom:15, fontSize:14}}>Please select a reason:</Text>
+                    <ScrollView style={{maxHeight: 400}}>
+                        {reasons.map((item) => (
+                            <TouchableOpacity key={item} style={styles.reportItem} onPress={() => onReport(item)}>
                                 <Text style={styles.reportText}>{item}</Text>
                                 <ChevronRight size={20} color="#666" />
                             </TouchableOpacity>
-                        )}
-                    />
+                        ))}
+                    </ScrollView>
                 </View>
             </View>
         </Modal>
@@ -109,6 +100,8 @@ const CommentsModal = ({ visible, onClose, reelId, showAlert }: any) => {
         });
     };
 
+    const getImageUri = (uri: string) => uri ? (uri.startsWith('http') ? uri : `${MEDIA_BASE_URL}/${uri}`) : null;
+
     return (
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
@@ -118,7 +111,7 @@ const CommentsModal = ({ visible, onClose, reelId, showAlert }: any) => {
                         <FlatList data={data?.comments || []} keyExtractor={i => i.id} contentContainerStyle={{paddingBottom: 80}} renderItem={({item}) => (
                             <View style={styles.commentItem}>
                                 <TouchableOpacity onPress={() => { onClose(); router.push({ pathname: '/user/[userId]', params: { userId: item.user_id } }); }}>
-                                    <Image source={{ uri: item.user.avatar ? (item.user.avatar.startsWith('http') ? item.user.avatar : `${MEDIA_BASE_URL}/${item.user.avatar}`) : '' }} style={styles.commentAvatar} />
+                                    <Image source={{ uri: getImageUri(item.user.avatar) }} style={styles.commentAvatar} />
                                 </TouchableOpacity>
                                 <View style={{flex:1}}>
                                     <View style={{flexDirection:'row', justifyContent:'space-between'}}>
@@ -166,7 +159,7 @@ const ReelOptionsModal = ({ visible, onClose, isOwner, onDelete, onReportClick }
 );
 
 // --- REEL ITEM ---
-const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscribe, onDurationUpdate, openComments, openOptions }: any) => {
+const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, openComments, openOptions, onDurationUpdate }: any) => {
     const insets = useSafeAreaInsets();
     const videoRef = useRef<Video>(null);
     const isFocused = useIsFocused();
@@ -178,6 +171,7 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
 
     const heartScale = useRef(new Animated.Value(0)).current;
     const lastTap = useRef<number | null>(null);
+    const singleTapTimer = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         const sub = AppState.addEventListener('change', next => { appState.current = next; setAppActive(next === 'active'); });
@@ -200,16 +194,15 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
     const handleTap = () => {
         const now = Date.now();
         if (lastTap.current && (now - lastTap.current) < 300) {
+            if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
             if (!item.is_liked) toggleLike(item.id);
             animateHeart();
             lastTap.current = null;
         } else {
             lastTap.current = now;
-            setTimeout(() => {
-                if (lastTap.current === now) { // Only toggle if no double tap happened
-                    setUserPaused(prev => !prev);
-                    lastTap.current = null;
-                }
+            singleTapTimer.current = setTimeout(() => {
+                setUserPaused(prev => !prev);
+                lastTap.current = null;
             }, 300);
         }
     };
@@ -237,8 +230,7 @@ const ReelItem = React.memo(({ item, isActive, index, toggleLike, toggleSubscrib
                     <Video ref={videoRef} source={{ uri: getUrl(item.video_url) }} style={styles.video} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && isFocused && appActive && !userPaused} onPlaybackStatusUpdate={(s:any) => { if(s.isLoaded && s.durationMillis && isActive) onDurationUpdate(item.id, s.durationMillis/1000); }} posterSource={{ uri: getUrl(item.thumbnail_url) }} />
                     
                     {userPaused && <View style={styles.centerOverlay}><View style={styles.pauseCircle}><View style={styles.playIcon}/></View></View>}
-
-                    <View style={styles.centerHeart}><Animated.View style={{ transform: [{ scale: heartScale }] }}><Heart size={100} color="white" fill="white" /></Animated.View></View>
+                    <View style={styles.centerHeart}><Animated.View style={{ transform: [{ scale: heartScale }] }}><Heart size={100} color="#E1306C" fill="#E1306C" style={{ opacity: 0.9 }} /></Animated.View></View>
                     <LinearGradient colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.9)']} style={styles.gradient} />
                     
                     <View style={[styles.rightActions, { bottom: insets.bottom + 40 }]}>
@@ -279,11 +271,9 @@ export default function ReelsScreen() {
     const [activeIndex, setActiveIndex] = useState(0);
     const [page, setPage] = useState(1);
     const [commentsVisible, setCommentsVisible] = useState(false);
-    const [optionsVisible, setOptionsVisible] = useState(false);
     const [reportVisible, setReportVisible] = useState(false);
+    const [optionsVisible, setOptionsVisible] = useState(false);
     const [activeReel, setActiveReel] = useState<any>(null);
-    
-    // Alert State
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     
     const startTimeRef = useRef<number>(Date.now());
@@ -339,7 +329,7 @@ export default function ReelsScreen() {
         mutationFn: (reason: string) => api.reels.report(activeReel.id, reason),
         onSuccess: () => {
              setReportVisible(false);
-             showAlert({ title: 'Reported', message: 'Thanks for helping us.', confirmText: 'OK', onConfirm: () => setAlertConfig({visible: false}) });
+             showAlert({ title: 'Reported', message: 'Thanks for helping us keep the community safe.', confirmText: 'OK', onConfirm: () => setAlertConfig({visible: false}) });
         }
     });
 
@@ -365,7 +355,7 @@ export default function ReelsScreen() {
             <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
             <View style={[styles.header, { top: insets.top + 10 }]}>
                 <Text style={styles.headerTitle}>Reels</Text>
-                <TouchableOpacity onPress={() => router.push('/reels/upload')}><Camera size={26} color="#fff" /></TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/reels/upload')}><Camera size={26} color="#fff"/></TouchableOpacity>
             </View>
             
             <FlatList
@@ -432,7 +422,6 @@ const styles = StyleSheet.create({
     caption: { color: '#fff', fontSize: 14, lineHeight: 20, marginBottom: 10 },
     musicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     musicText: { color: '#fff', fontSize: 13 },
-    // Modals & Alerts
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     modalContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '70%', padding: 0 },
     reportContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
@@ -451,7 +440,6 @@ const styles = StyleSheet.create({
     optionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
     reportItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
     reportText: { color: '#fff', fontSize: 16 },
-    // Custom Alert
     alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
     alertBox: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
     alertTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 },
