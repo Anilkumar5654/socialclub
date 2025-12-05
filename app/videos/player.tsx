@@ -5,7 +5,10 @@ import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X,
   // CRITICAL: Ensure all used icons are imported
-  Save, Flag, Trash2 
+  Save, Flag, Trash2,
+  
+  // <<< FIX: Use these Lucide icons for seek feedback >>>
+  ArrowBigRight, ArrowBigLeft 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -129,19 +132,19 @@ export default function VideoPlayerScreen() {
   const [currentPosition, setCurrentPosition] = useState(0); // In MS
   const [totalDurationSec, setTotalDurationSec] = useState(0); // In Sec for API
   
-  // <<< NEW STATE FOR FULLSCREEN >>>
+  // <<< STATE FOR FULLSCREEN >>>
   const [isFullscreen, setIsFullscreen] = useState(false); 
 
-  // <<< NEW STATE FOR SEEKING (Duration Bar) >>>
+  // <<< STATE FOR SEEKING (Duration Bar) >>>
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPosition, setSeekPosition] = useState(0); // In MS
   const progressBarRef = useRef<View>(null);
   const progressBarWidth = useRef(0);
   
-  // <<< NEW REFS FOR DOUBLE TAP LOGIC >>>
+  // <<< REFS FOR DOUBLE TAP LOGIC >>>
   const lastTapTime = useRef(0);
   
-  // <<< NEW STATE for Seek Feedback (Fix 2) >>>
+  // <<< STATE for Seek Feedback (Fix 2) >>>
   const [showSeekIcon, setShowSeekIcon] = useState(false);
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -359,7 +362,6 @@ export default function VideoPlayerScreen() {
           try {
               await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
               // CRITICAL FIX: Ensure playback resumes only if it was playing before drag started
-              // The `isPlaying` state handles whether to play or remain paused.
               if (isPlaying) { 
                   await videoRef.current.playAsync();
               }
@@ -379,7 +381,7 @@ export default function VideoPlayerScreen() {
   };
 
 
-  // --- NEW DOUBLE TAP AND FULLSCREEN HANDLERS ---
+  // --- NEW DOUBLE TAP AND FULLSCREEN HANDLERS (Fixed Control Lag) ---
   
   const handleDoubleTap = (event: any) => {
     const now = Date.now();
@@ -387,7 +389,7 @@ export default function VideoPlayerScreen() {
     
     // Determine tap side
     const tapX = event.nativeEvent.locationX;
-    const currentWidth = isFullscreen ? Dimensions.get('window').width : SCREEN_WIDTH; // Use current visible width
+    const currentWidth = isFullscreen ? Dimensions.get('window').width : SCREEN_WIDTH; 
     
     const isLeft = tapX < currentWidth * 0.4;
     const isRight = tapX > currentWidth * 0.6;
@@ -409,10 +411,9 @@ export default function VideoPlayerScreen() {
     
     lastTapTime.current = now;
     
-    // Single Tap Logic: Check if enough time has passed since the first tap
-    // This allows the controls to toggle on a quick single press, but waits for 300ms 
-    // to confirm it's not the first tap of a double tap.
+    // Single Tap Logic (Fix 3: Ensures controls toggle quickly)
     setTimeout(() => {
+        // Only toggle controls if no second tap occurred within 300ms
         if (Date.now() - lastTapTime.current >= 300) {
             setShowControls(!showControls);
         }
@@ -508,7 +509,7 @@ export default function VideoPlayerScreen() {
           shouldPlay={isPlaying}
           useNativeControls={false}
           
-          // <<< PERFORMANCE FIXES >>>
+          // <<< PERFORMANCE FIXES (Delay Load) >>>
           usePoster={true} // Use poster image while video is loading
           posterSource={{ uri: thumbnailUrl }}
           posterStyle={StyleSheet.absoluteFillObject}
@@ -528,14 +529,18 @@ export default function VideoPlayerScreen() {
           onError={(e) => console.log('CRITICAL EXPO VIDEO ERROR:', e)}
         />
         
-        {/* 2. FIX: SEEK FEEDBACK OVERLAY (YouTube Style) */}
+        {/* 2. FIX: SEEK FEEDBACK OVERLAY (Using Lucide Icons) */}
         {showSeekIcon && (
             <View style={styles.seekOverlay}>
-                {seekDirection === 'forward' ? 
-                    <Image source={require('@/assets/icons/forward-10.png')} style={styles.seekIcon} /> 
-                    : 
-                    <Image source={require('@/assets/icons/backward-10.png')} style={styles.seekIcon} /> 
-                }
+                <View style={styles.seekIconContainer}>
+                    {seekDirection === 'forward' ? 
+                        <ArrowBigRight color="white" size={48} /> 
+                        : 
+                        <ArrowBigLeft color="white" size={48} /> 
+                    }
+                    {/* Display the seek amount (e.g., 10) next to the icon */}
+                    <Text style={styles.seekAmountText}>10</Text>
+                </View>
             </View>
         )}
         
@@ -563,8 +568,9 @@ export default function VideoPlayerScreen() {
                     onResponderMove={handleSeekMove} // Dragging
                     onResponderRelease={handleSeekEnd} // End dragging/tap
                 >
-                    {/* The actual progress bar fill */}
+                    {/* The actual progress bar track (background) */}
                     <View style={styles.progressBarTrack} />
+                    {/* The progress bar fill (foreground) */}
                     <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
                 </Pressable>
                 
@@ -792,10 +798,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 5, // Below controls (10), above video (0)
   },
-  seekIcon: {
-      width: 70, // Adjust size as needed
-      height: 70, // Adjust size as needed
-      opacity: 0.8,
+  seekIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+  },
+  seekAmountText: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: '700',
+    marginLeft: 5,
   },
   // <<< End Seek Feedback Overlay Styles >>>
 
