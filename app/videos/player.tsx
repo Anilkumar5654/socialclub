@@ -4,7 +4,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X,
-  // ADDED MISSING ICONS FOR MODAL
+  // <<< CRITICAL FIX: ALL REQUIRED ICONS ADDED >>>
   Save, Flag, Trash2 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -28,6 +28,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
+  // ORIGNAL NULL-SAFE LOGIC RETAINED
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
@@ -51,6 +52,7 @@ const formatDuration = (seconds: any) => {
 
 // --- RECOMMENDED CARD ---
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
+  // RETAINING NULL-SAFE CHECKS
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
   
@@ -75,24 +77,26 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL (UPDATED LOGIC) ---
+// --- OPTIONS MENU MODAL (UPDATED LOGIC & PROPS) ---
 function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={onClose}>
                 <View style={styles.menuBox}>
                     
-                    {/* ONLY REPORT REMAINS FROM ORIGINAL REQUEST */}
+                    {/* Report Option */}
                     <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onReport(); }}>
                         <Flag size={20} color={Colors.text} /><Text style={styles.menuText}>Report Video</Text>
                     </TouchableOpacity>
 
+                    {/* Delete Option (Owner only) */}
                     {isOwner && (
                         <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={() => { onClose(); onDelete(); }}>
                             <Trash2 size={20} color="#FF4444" /><Text style={[styles.menuText, { color: '#FF4444' }]}>Delete Video</Text>
                         </TouchableOpacity>
                     )}
 
+                    {/* Cancel Option */}
                     <TouchableOpacity style={[styles.menuItem, !isOwner && styles.menuItemDestructive]} onPress={onClose}>
                         <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
                     </TouchableOpacity>
@@ -127,7 +131,7 @@ export default function VideoPlayerScreen() {
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   
-  // Modals
+  // Modals (Using showDescription for consistency)
   const [showDescription, setShowDescription] = useState(false); 
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -151,26 +155,26 @@ export default function VideoPlayerScreen() {
   // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
-      const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
-      // Note: completionRate should be watchedSec / totalDurationSec
-      const completionRate = Math.min(1, watchedSec / totalDurationSec);
+      const deviceId = await getDeviceId(); 
+      // Null-safe calculation for completion rate
+      const completionRate = Math.min(1, watchedSec / (totalDurationSec || 1)); 
       api.videos.trackWatch(videoId, watchedSec, completionRate); 
     }
   }, [videoId, totalDurationSec]);
 
-  // Initialize State
+  // Initialize State (Null-safe retained)
   useEffect(() => {
     if (video) {
       setLikesCount(video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
+      setTotalDurationSec(Number(video.duration) || 0);
     }
   }, [video]);
 
   // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
-    if (videoId) api.videos.view(videoId); // Track immediate view
+    if (videoId) api.videos.view(videoId); 
 
     startTimeRef.current = Date.now();
     
@@ -179,7 +183,6 @@ export default function VideoPlayerScreen() {
         const watchedSec = (endTime - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
         
-        // CRITICAL: Unload video component on unmount to stop background audio
         if (videoRef.current) {
             videoRef.current.unloadAsync();
         }
@@ -195,7 +198,7 @@ export default function VideoPlayerScreen() {
     return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
   }, [showControls, isPlaying]);
 
-  // Mutations
+  // Mutations (Logic retained)
   const likeMutation = useMutation({
     mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!),
     onSuccess: (data) => { 
@@ -214,7 +217,7 @@ export default function VideoPlayerScreen() {
   });
 
   const subscribeMutation = useMutation({
-    mutationFn: () => isSubscribed ? api.channels.unsubscribe(video.channel.id) : api.channels.subscribe(video.channel.id),
+    mutationFn: () => api.channels[isSubscribed ? 'unsubscribe' : 'subscribe'](video?.channel?.id!),
     onSuccess: () => setIsSubscribed(!isSubscribed)
   });
 
@@ -223,7 +226,7 @@ export default function VideoPlayerScreen() {
     onSuccess: () => { setCommentText(''); refetchComments(); }
   });
   
-  // Report Mutation (Updated Success Message for better UI match)
+  // Report Mutation (Uses new api.videos.report)
   const reportMutation = useMutation({
       mutationFn: () => api.videos.report(videoId!, 'Inappropriate'),
       onSuccess: () => { 
@@ -233,13 +236,13 @@ export default function VideoPlayerScreen() {
       }
   });
   
-  // Delete Mutation
+  // Delete Mutation (Uses new api.videos.delete)
   const deleteMutation = useMutation({
       mutationFn: () => api.videos.delete(videoId!),
       onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK'}]); router.back(); }
   });
 
-  // Save Mutation (Used by the round icon button)
+  // Save Mutation (Uses new api.videos.save)
   const saveMutation = useMutation({
       mutationFn: () => api.videos.save(videoId!),
       onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
@@ -270,7 +273,6 @@ export default function VideoPlayerScreen() {
   };
 
   const handleReport = () => {
-      // Confirmation Alert before reporting
        Alert.alert(
           'Confirm Report',
           'Are you sure you want to report this video for inappropriate content?',
@@ -285,18 +287,19 @@ export default function VideoPlayerScreen() {
       Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])
   };
 
-  if (isLoading || !video) {
+  // Null Check
+  if (isLoading || !video || !video.channel) { 
     return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={Colors.primary} /></View>;
   }
 
   const videoUrl = getMediaUrl(video.video_url);
   
-  // Robust Channel Data Access (Guaranteed by PHP fallback)
+  // Robust Channel Data Access
   const channelName = video.channel.name || 'Channel Name'; 
   const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
   const subscriberCount = video.channel.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
-  const isOwner = video.user.id === user?.id; // Check ownership
+  const isOwner = video.user.id === user?.id; 
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -498,7 +501,7 @@ export default function VideoPlayerScreen() {
          </View>
       </Modal>
       
-      {/* --- OPTIONS MENU MODAL (FINAL CUSTOM UI) --- */}
+      {/* --- OPTIONS MENU MODAL --- */}
       <OptionsMenuModal 
         visible={showMenu}
         onClose={() => setShowMenu(false)}
