@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
-  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X, Save, Flag, Trash2
+  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -29,7 +29,7 @@ const getMediaUrl = (path: string | undefined) => {
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
-// FIX: Null-Safe Views Formatting (Handles the 'toString' crash)
+// FIX: Null-Safe Views Formatting (Crash Fix)
 const formatViews = (views: number | undefined | null) => {
   const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
@@ -37,7 +37,7 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
-// FIX: Correct Duration Format (seconds to MM:SS)
+// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -102,6 +102,7 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
     );
 }
 
+
 // --- MAIN PLAYER SCREEN ---
 
 export default function VideoPlayerScreen() {
@@ -125,7 +126,7 @@ export default function VideoPlayerScreen() {
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [showFullDesc, setShowFullDesc] = useState(false);
+  const [showFullDesc, setShowFullDesc] = useState(false); // To manage description modal state
   
   // Modals
   const [showComments, setShowComments] = useState(false);
@@ -147,7 +148,7 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // 4. Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
+  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
@@ -167,7 +168,7 @@ export default function VideoPlayerScreen() {
 
   // View Counter (Once per load) & Watch Time Cleanup on Unmount
   useEffect(() => {
-    if (videoId) api.videos.view(videoId);
+    if (videoId) api.videos.view(videoId); // Track immediate view
 
     startTimeRef.current = Date.now();
     
@@ -232,7 +233,7 @@ export default function VideoPlayerScreen() {
 
   const saveMutation = useMutation({
       mutationFn: () => api.videos.save(videoId!),
-      onSuccess: () => { Alert.alert('Saved', 'Video added to your library!'); }
+      onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
   });
 
 
@@ -435,7 +436,7 @@ export default function VideoPlayerScreen() {
                     <View style={styles.commentItem}>
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
-                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></Text>
+                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></View>
                             <Text style={styles.commentBody}>{item.content}</Text>
                         </View>
                     </View>
@@ -472,7 +473,7 @@ export default function VideoPlayerScreen() {
         isOwner={isOwner}
         onDelete={() => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])}}
         onReport={() => { Alert.alert('Report', 'Please report through the website menu.', [{text:'OK'}]) }}
-        onSave={() => { Alert.alert('Save', 'Video saved to your library!', [{text:'OK'}]) }}
+        onSave={() => { saveMutation.mutate(); }}
       />
 
 
