@@ -106,7 +106,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Passed to Controllers/Actions) ---
+  // --- HANDLERS (Defined here, passed to components) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -145,7 +145,7 @@ export default function VideoPlayerScreen() {
   }, [currentPosition, videoDuration, showControls]);
 
 
-  // SEEKING BAR LOGIC (FINAL FIX)
+  // SEEKING BAR LOGIC 
   const handleSeek = (x: number) => {
       const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
       const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
@@ -164,13 +164,20 @@ export default function VideoPlayerScreen() {
       if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
   };
 
+  // <<< CRITICAL FIX: FINAL SEEK JUMP >>>
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
-              // CRITICAL FIX: Commit the seek command to the player
-              await videoRef.current.setStatusAsync({ positionMillis: seekPosition }); 
+              // 1. Commit the seek command to the player
+              await videoRef.current.setStatusAsync({ 
+                  positionMillis: seekPosition,
+                  shouldPlay: isPlaying // Resume playing if it was playing, or stay paused
+              }); 
               
+              // 2. Update the main position state
               setCurrentPosition(seekPosition);
+              
+              // 3. Reset seeking mode
               setIsSeeking(false);
               setSeekPosition(0); 
           } catch (e) {
@@ -180,6 +187,7 @@ export default function VideoPlayerScreen() {
           }
       }
   };
+  // <<< END CRITICAL FIX >>>
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
@@ -234,9 +242,6 @@ export default function VideoPlayerScreen() {
 
   useEffect(() => {
     // ... Cleanup logic (simplified for brevity) ...
-    return () => {
-        // ...
-    };
   }, [videoId, totalDurationSec]);
 
 
