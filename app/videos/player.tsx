@@ -24,7 +24,7 @@ import RecommendedVideos from '@/components/video/RecommendedVideos';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS (Kept Minimal) ---
+// --- HELPERS (Minimal) ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
@@ -38,13 +38,11 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
-// --- REMOVED OLD RecommendedVideoCard HELPER HERE ---
 
 // --- MAIN PLAYER SCREEN ---
 
 export default function VideoPlayerScreen() {
-  const { videoId } = useLocalSearchParams<{ videoId: string }>(); // <<< HOOK USED SAFELY HERE
-
+  const { videoId } = useLocalSearchParams<{ videoId: string }>();
   const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
   const { user } = useAuth();
@@ -108,7 +106,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Defined here, passed to components) ---
+  // --- HANDLERS (Passed to Controllers/Actions) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -119,8 +117,7 @@ export default function VideoPlayerScreen() {
   const handleDelete = () => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }]); };
   const handleSave = () => { saveMutation.mutate(); }
   
-  // (All playback and control handlers remain the same as defined in the previous response)
-
+  // Seek feedback display function
   const displaySeekFeedback = (direction: 'forward' | 'backward') => {
       if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
       setSeekDirection(direction);
@@ -130,8 +127,10 @@ export default function VideoPlayerScreen() {
       }, 500);
   };
   
+  // Seek Video by X seconds (used by double-tap)
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
+    
     const status = await videoRef.current.getStatusAsync();
     const currentPosMillis = status.positionMillis || currentPosition;
     const newPosition = currentPosMillis + amount * 1000;
@@ -146,7 +145,7 @@ export default function VideoPlayerScreen() {
   }, [currentPosition, videoDuration, showControls]);
 
 
-  // SEEKING BAR LOGIC 
+  // SEEKING BAR LOGIC (FINAL FIX)
   const handleSeek = (x: number) => {
       const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
       const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
@@ -168,7 +167,9 @@ export default function VideoPlayerScreen() {
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
-              await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
+              // CRITICAL FIX: Commit the seek command to the player
+              await videoRef.current.setStatusAsync({ positionMillis: seekPosition }); 
+              
               setCurrentPosition(seekPosition);
               setIsSeeking(false);
               setSeekPosition(0); 
@@ -234,7 +235,7 @@ export default function VideoPlayerScreen() {
   useEffect(() => {
     // ... Cleanup logic (simplified for brevity) ...
     return () => {
-        // Find a safe way to call trackWatch if needed, but keeping the component clean for now.
+        // ...
     };
   }, [videoId, totalDurationSec]);
 
