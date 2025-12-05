@@ -18,7 +18,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { useAuth } from '@/contexts/Auth/AuthContext'; // Assuming correct path based on usage
+// FIX: Changed path back to the original format to resolve bundling error
+import { useAuth } from '@/contexts/AuthContext'; 
 import { getDeviceId } from '@/utils/deviceId'; 
 
 
@@ -170,8 +171,7 @@ export default function VideoPlayerScreen() {
       // FIX 2: Explicitly ensure isPlaying is true and attempt to play
       setIsPlaying(true); 
       if (videoRef.current) {
-          // Attempt to play explicitly when video data is loaded,
-          // catching potential promise rejection if playback is already active or restricted.
+          // Attempt to play explicitly when video data is loaded
           videoRef.current.playAsync().catch(e => console.log("Play command skipped or failed on load:", e));
       }
     }
@@ -325,7 +325,6 @@ export default function VideoPlayerScreen() {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
                  setCurrentPosition(status.positionMillis);
-                 // Note: If playback fails, status.isLoaded might remain true without status.isPlaying being true.
                  if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); trackVideoWatch(totalDurationSec); }
              }
           }}
@@ -444,7 +443,6 @@ export default function VideoPlayerScreen() {
             {comments.length > 0 ? (
                 <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
                     <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
-                    {/* FIXED JSX SYNTAX ERROR */}
                     <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
                 </View>
             ) : (
