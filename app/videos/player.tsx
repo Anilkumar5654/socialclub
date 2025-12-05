@@ -164,9 +164,10 @@ export default function VideoPlayerScreen() {
       if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
   };
 
-  // <<< CRITICAL FIX: FINAL SEEK JUMP AND ASYNC TIMING RESOLUTION >>>
+  // Utility function for delay
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+  // <<< CRITICAL FIX: FINAL SEEK JUMP AND ASYNC TIMING RESOLUTION >>>
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
@@ -177,8 +178,7 @@ export default function VideoPlayerScreen() {
               }); 
               
               // 2. Add a tiny delay to ensure the ExpoAV library processes the jump 
-              // before we force the UI state update.
-              await delay(50); // 50ms delay
+              await delay(50); 
               
               // 3. Update the main position state and reset seeking mode
               setCurrentPosition(seekPosition);
