@@ -1,14 +1,14 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Dimensions, FlatList, TouchableOpacity,
-  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, Alert, RefreshControl, AppState
+  StatusBar, ActivityIndicator, TouchableWithoutFeedback, Animated, Platform, Modal, TextInput, Share, RefreshControl, AppState
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, router } from 'expo-router'; 
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from '@react-navigation/native'; 
 import { Heart, MessageCircle, Share2, MoreVertical, Music2, Camera, X, Send, Trash2, Flag, ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -20,6 +20,31 @@ import { useAuth } from '@/contexts/AuthContext';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BOTTOM_TAB_HEIGHT = Platform.OS === 'ios' ? 80 : 50; 
 const ACTUAL_HEIGHT = SCREEN_HEIGHT - BOTTOM_TAB_HEIGHT;
+
+// --- CUSTOM ALERT COMPONENT ---
+const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText = 'Confirm', isDestructive = false }: any) => {
+  if (!visible) return null;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.alertOverlay}>
+        <View style={styles.alertBox}>
+          <Text style={styles.alertTitle}>{title}</Text>
+          <Text style={styles.alertMessage}>{message}</Text>
+          <View style={styles.alertButtons}>
+            {onCancel && (
+                <TouchableOpacity onPress={onCancel} style={styles.alertBtnCancel}>
+                <Text style={styles.alertBtnTextCancel}>Cancel</Text>
+                </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={onConfirm} style={styles.alertBtnConfirm}>
+              <Text style={[styles.alertBtnTextConfirm, isDestructive && { color: '#FF4444' }]}>{confirmText}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 // --- REPORT MODAL ---
 const ReportModal = ({ visible, onClose, onReport }: any) => {
@@ -45,7 +70,7 @@ const ReportModal = ({ visible, onClose, onReport }: any) => {
 };
 
 // --- COMMENTS MODAL ---
-const CommentsModal = ({ visible, onClose, reelId }: any) => {
+const CommentsModal = ({ visible, onClose, reelId, showAlert }: any) => {
     const [text, setText] = useState('');
     const { user: currentUser } = useAuth();
     const queryClient = useQueryClient();
@@ -61,15 +86,24 @@ const CommentsModal = ({ visible, onClose, reelId }: any) => {
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reel-comments', reelId] }) 
     });
 
+    const handleDelete = (cid: string) => {
+        showAlert({
+            title: 'Delete Comment', message: 'Are you sure?', isDestructive: true, confirmText: 'Delete',
+            onConfirm: () => del.mutate(cid)
+        });
+    };
+
     return (
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
                 <View style={styles.modalContent}>
                     <View style={styles.modalHeader}><Text style={styles.modalTitle}>Comments ({data?.comments?.length || 0})</Text><TouchableOpacity onPress={onClose}><X color="#fff" size={24}/></TouchableOpacity></View>
                     {isLoading ? <ActivityIndicator color={Colors.primary} /> : (
-                        <FlatList data={data?.comments || []} keyExtractor={i => i.id} renderItem={({item}) => (
+                        <FlatList data={data?.comments || []} keyExtractor={i => i.id} contentContainerStyle={{paddingBottom: 80}} renderItem={({item}) => (
                             <View style={styles.commentItem}>
-                                <Image source={{ uri: item.user.avatar ? (item.user.avatar.startsWith('http') ? item.user.avatar : `${MEDIA_BASE_URL}/${item.user.avatar}`) : '' }} style={styles.commentAvatar} />
+                                <TouchableOpacity onPress={() => { onClose(); router.push({ pathname: '/user/[userId]', params: { userId: item.user_id } }); }}>
+                                    <Image source={{ uri: item.user.avatar ? (item.user.avatar.startsWith('http') ? item.user.avatar : `${MEDIA_BASE_URL}/${item.user.avatar}`) : '' }} style={styles.commentAvatar} />
+                                </TouchableOpacity>
                                 <View style={{flex:1}}>
                                     <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                                         <Text style={styles.commentUser}>{item.user.username}</Text>
@@ -78,9 +112,7 @@ const CommentsModal = ({ visible, onClose, reelId }: any) => {
                                     <Text style={styles.commentText}>{item.content}</Text>
                                 </View>
                                 {String(currentUser?.id) === String(item.user_id) && (
-                                    <TouchableOpacity onPress={() => Alert.alert('Delete', 'Sure?', [{text:'Cancel'},{text:'Delete', style:'destructive', onPress:()=>del.mutate(item.id)}])}>
-                                        <Trash2 size={16} color="#666"/>
-                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleDelete(item.id)}><Trash2 size={16} color="#666"/></TouchableOpacity>
                                 )}
                             </View>
                         )} ListEmptyComponent={<Text style={{color:'#666', textAlign:'center', marginTop:20}}>No comments yet.</Text>} />
@@ -123,22 +155,50 @@ const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, open
     const isFocused = useIsFocused();
     const appState = useRef(AppState.currentState);
     const [appActive, setAppActive] = useState(appState.current === 'active');
+    
+    // NEW: Manual Pause State
+    const [userPaused, setUserPaused] = useState(false);
+
     const heartScale = useRef(new Animated.Value(0)).current;
     const insets = useSafeAreaInsets();
+    const lastTap = useRef<number | null>(null);
 
     useEffect(() => {
         const sub = AppState.addEventListener('change', next => { appState.current = next; setAppActive(next === 'active'); });
         return () => sub.remove();
     }, []);
 
+    // Logic: Play only if Active + Screen Focused + App Active + User Didn't Pause
     useEffect(() => {
         if (!videoRef.current) return;
-        if (isActive && isFocused && appActive) videoRef.current.playAsync();
-        else { videoRef.current.pauseAsync(); if (!isFocused) videoRef.current.setPositionAsync(0); }
-    }, [isActive, isFocused, appActive]);
+        if (isActive && isFocused && appActive && !userPaused) {
+            videoRef.current.playAsync();
+        } else {
+            videoRef.current.pauseAsync();
+            if (!isActive) {
+                videoRef.current.setPositionAsync(0);
+                setUserPaused(false); // Reset pause when scrolled away
+            }
+        }
+    }, [isActive, isFocused, appActive, userPaused]);
 
-    const handleDoubleTap = () => {
-        if (!item.is_liked) toggleLike(item.id);
+    const handleTap = () => {
+        const now = Date.now();
+        const DOUBLE_PRESS_DELAY = 300;
+        if (lastTap.current && (now - lastTap.current) < DOUBLE_PRESS_DELAY) {
+            // Double Tap -> Like
+            if (!item.is_liked) toggleLike(item.id);
+            animateHeart();
+        } else {
+            // Single Tap -> Toggle Play/Pause
+            lastTap.current = now;
+            // Add small delay to distinguish single/double tap if needed, but immediate toggle feels snappier
+            setUserPaused(prev => !prev);
+        }
+    };
+
+    const animateHeart = () => {
+        heartScale.setValue(0);
         Animated.sequence([
             Animated.spring(heartScale, { toValue: 1, useNativeDriver: true }),
             Animated.timing(heartScale, { toValue: 0, duration: 200, useNativeDriver: true })
@@ -155,11 +215,15 @@ const ReelItem = React.memo(({ item, isActive, toggleLike, toggleSubscribe, open
 
     return (
         <View style={[styles.reelContainer, { height: ACTUAL_HEIGHT }]}>
-            <TouchableWithoutFeedback onPress={handleDoubleTap}>
+            <TouchableWithoutFeedback onPress={handleTap}>
                 <View style={styles.videoWrapper}>
-                    <Video ref={videoRef} source={{ uri: getUrl(item.video_url) }} style={styles.video} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && isFocused && appActive} onPlaybackStatusUpdate={(s:any) => { if(s.isLoaded && s.durationMillis && isActive) onDurationUpdate(item.id, s.durationMillis/1000); }} posterSource={{ uri: getUrl(item.thumbnail_url) }} />
+                    <Video ref={videoRef} source={{ uri: getUrl(item.video_url) }} style={styles.video} resizeMode={ResizeMode.COVER} isLooping shouldPlay={isActive && isFocused && appActive && !userPaused} onPlaybackStatusUpdate={(s:any) => { if(s.isLoaded && s.durationMillis && isActive) onDurationUpdate(item.id, s.durationMillis/1000); }} posterSource={{ uri: getUrl(item.thumbnail_url) }} />
+                    
+                    {/* Pause Icon Overlay */}
+                    {userPaused && <View style={styles.centerOverlay}><View style={styles.pauseCircle}><View style={styles.playIcon}/></View></View>}
+
                     <View style={styles.centerHeart}><Animated.View style={{ transform: [{ scale: heartScale }] }}><Heart size={100} color="white" fill="white" /></Animated.View></View>
-                    <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.gradient} />
+                    <LinearGradient colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.9)']} style={styles.gradient} />
                     
                     <View style={[styles.rightActions, { bottom: insets.bottom + 40 }]}>
                         <TouchableOpacity onPress={() => toggleLike(item.id)} style={styles.actionBtn}>
@@ -199,19 +263,24 @@ export default function ReelsScreen() {
     const [activeIndex, setActiveIndex] = useState(0);
     const [page, setPage] = useState(1);
     const [commentsVisible, setCommentsVisible] = useState(false);
-    const [reportVisible, setReportVisible] = useState(false);
     const [optionsVisible, setOptionsVisible] = useState(false);
     const [activeReel, setActiveReel] = useState<any>(null);
     
+    // Alert State
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    
     const startTimeRef = useRef<number>(Date.now());
     const durationsRef = useRef<{[key: string]: number}>({});
-    
     const queryClient = useQueryClient();
     const insets = useSafeAreaInsets();
     const { user: currentUser } = useAuth();
 
     const { data, isLoading, refetch, isRefetching } = useQuery({ queryKey: ['reels-feed', page], queryFn: () => api.reels.getReels(page, 5) });
     const reels = data?.reels || [];
+
+    const showAlert = (config: any) => {
+        setAlertConfig({ ...config, visible: true, onCancel: () => setAlertConfig({ visible: false }) });
+    };
 
     const trackCurrentView = useCallback((index: number, reelList: any[]) => {
         const reel = reelList[index];
@@ -229,18 +298,31 @@ export default function ReelsScreen() {
     }, [activeIndex, reels, trackCurrentView]));
 
     const likeMutation = useMutation({
-        mutationFn: (id: string) => { const r = reels.find((x:any)=>x.id===id); return r.is_liked ? api.reels.unlike(id) : api.reels.like(id); },
-        onSuccess: (d, id) => queryClient.setQueryData(['reels-feed', page], (old:any) => ({...old, reels: old.reels.map((r:any) => r.id===id ? {...r, is_liked: !r.is_liked, likes_count: r.is_liked?r.likes_count-1:r.likes_count+1} : r)}))
+        mutationFn: (reelId: string) => {
+            const reel = reels.find((r: any) => r.id === reelId);
+            return reel?.is_liked ? api.reels.unlike(reelId) : api.reels.like(reelId);
+        },
+        onSuccess: (data, reelId) => {
+            queryClient.setQueryData(['reels-feed', page], (old: any) => {
+                if(!old) return old;
+                return { ...old, reels: old.reels.map((r: any) => r.id === reelId ? {...r, is_liked: !r.is_liked, likes_count: r.is_liked ? r.likes_count - 1 : r.likes_count + 1} : r) }
+            })
+        }
     });
 
     const subscribeMutation = useMutation({
-        mutationFn: (cid: string) => { const r = reels.find((x:any)=>x.channel_id===cid); return r.is_subscribed ? api.channels.unsubscribe(cid) : api.channels.subscribe(cid); },
+        mutationFn: (cid: string) => {
+            const reel = reels.find((x:any)=>x.channel_id===cid);
+            return reel?.is_subscribed ? api.channels.unsubscribe(cid) : api.channels.subscribe(cid);
+        },
         onSuccess: (d, cid) => queryClient.setQueryData(['reels-feed', page], (old:any) => ({...old, reels: old.reels.map((r:any) => r.channel_id===cid ? {...r, is_subscribed: !r.is_subscribed} : r)}))
     });
 
     const reportMutation = useMutation({
         mutationFn: (reason: string) => api.reels.report(activeReel.id, reason),
-        onSuccess: () => { setReportVisible(false); Alert.alert('Reported', 'Thanks for reporting.'); }
+        onSuccess: () => {
+             showAlert({ title: 'Reported', message: 'Thanks for helping us.', confirmText: 'OK', onConfirm: () => setAlertConfig({visible: false}) });
+        }
     });
 
     const deleteMutation = useMutation({
@@ -263,7 +345,11 @@ export default function ReelsScreen() {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-            <View style={[styles.header, { top: insets.top + 10 }]}><Text style={styles.headerTitle}>Reels</Text><Camera size={26} color="#fff"/></View>
+            <View style={[styles.header, { top: insets.top + 10 }]}>
+                <Text style={styles.headerTitle}>Reels</Text>
+                <TouchableOpacity onPress={() => router.push('/reels/upload')}><Camera size={26} color="#fff" /></TouchableOpacity>
+            </View>
+            
             <FlatList
                 data={reels}
                 keyExtractor={item => item.id.toString()}
@@ -281,11 +367,18 @@ export default function ReelsScreen() {
                 getItemLayout={(data, index) => ({ length: ACTUAL_HEIGHT, offset: ACTUAL_HEIGHT * index, index })}
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
                 onEndReached={() => { if(data?.hasMore) setPage(p => p+1) }} onEndReachedThreshold={2}
-                ListEmptyComponent={<View style={[styles.loadingContainer, {height: ACTUAL_HEIGHT}]}><Text style={{color:'#fff'}}>No Reels</Text></View>}
+                ListEmptyComponent={<View style={[styles.loadingContainer, {height: ACTUAL_HEIGHT}]}><Text style={{color:'#fff'}}>No Reels Found</Text></View>}
             />
-            {activeReel && <CommentsModal visible={commentsVisible} onClose={() => setCommentsVisible(false)} reelId={activeReel.id} />}
-            {activeReel && <ReelOptionsModal visible={optionsVisible} onClose={() => setOptionsVisible(false)} isOwner={String(activeReel.user_id) === String(currentUser?.id)} onDelete={() => Alert.alert('Delete', 'Sure?', [{text:'Cancel'},{text:'Delete', style:'destructive', onPress:()=>deleteMutation.mutate(activeReel.id)}])} onReportClick={() => { setOptionsVisible(false); setTimeout(()=>setReportVisible(true), 300); }} />}
-            <ReportModal visible={reportVisible} onClose={() => setReportVisible(false)} onReport={(r:string) => reportMutation.mutate(r)} />
+
+            {activeReel && <CommentsModal visible={commentsVisible} onClose={() => setCommentsVisible(false)} reelId={activeReel.id} showAlert={showAlert} />}
+            
+            {activeReel && <ReelOptionsModal visible={optionsVisible} onClose={() => setOptionsVisible(false)} 
+                isOwner={String(activeReel.user_id) === String(currentUser?.id)} 
+                onDelete={() => showAlert({ title: 'Delete', message: 'Are you sure?', isDestructive: true, confirmText: 'Delete', onConfirm: () => deleteMutation.mutate(activeReel.id) })}
+                onReportClick={() => { setOptionsVisible(false); setTimeout(() => showAlert({ title: 'Report', message: 'Select reason', confirmText: 'Spam', onConfirm: () => reportMutation.mutate('Spam') }), 300); }} 
+            />}
+
+            <CustomAlert {...alertConfig} />
         </View>
     );
 }
@@ -300,6 +393,9 @@ const styles = StyleSheet.create({
     video: { width: '100%', height: '100%' },
     gradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 350 },
     centerHeart: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5 },
+    centerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 4 },
+    pauseCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+    playIcon: { width: 0, height: 0, borderLeftWidth: 20, borderLeftColor: '#fff', borderTopWidth: 12, borderTopColor: 'transparent', borderBottomWidth: 12, borderBottomColor: 'transparent', marginLeft: 4 }, // Simple CSS Triangle
     rightActions: { position: 'absolute', right: 10, bottom: 100, zIndex: 20, alignItems: 'center', gap: 20 },
     actionBtn: { alignItems: 'center' },
     actionText: { color: '#fff', marginTop: 5, fontSize: 13, fontWeight: '600' },
@@ -317,7 +413,7 @@ const styles = StyleSheet.create({
     caption: { color: '#fff', fontSize: 14, lineHeight: 20, marginBottom: 10 },
     musicRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     musicText: { color: '#fff', fontSize: 13 },
-    // Modals
+    // Modals & Alerts
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     modalContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '70%', padding: 0 },
     reportContent: { backgroundColor: '#121212', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
@@ -335,5 +431,15 @@ const styles = StyleSheet.create({
     optionItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, gap: 16 },
     optionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
     reportItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
-    reportText: { color: '#fff', fontSize: 16 }
+    reportText: { color: '#fff', fontSize: 16 },
+    // Custom Alert
+    alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+    alertBox: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+    alertTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 },
+    alertMessage: { color: '#AAA', fontSize: 14, textAlign: 'center', marginBottom: 20 },
+    alertButtons: { flexDirection: 'row', gap: 12, width: '100%' },
+    alertBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
+    alertBtnConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#333', alignItems: 'center' },
+    alertBtnTextCancel: { color: '#fff', fontWeight: '600' },
+    alertBtnTextConfirm: { color: '#E1306C', fontWeight: '600' }
 });
