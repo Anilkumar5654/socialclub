@@ -106,7 +106,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Defined here, passed to components) ---
+  // --- HANDLERS (Passed to Controllers/Actions) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -171,7 +171,7 @@ export default function VideoPlayerScreen() {
               // 1. Commit the seek command to the player
               await videoRef.current.setStatusAsync({ 
                   positionMillis: seekPosition,
-                  shouldPlay: isPlaying // Resume playing if it was playing, or stay paused
+                  shouldPlay: isPlaying // Preserve playback state
               }); 
               
               // 2. Update the main position state
