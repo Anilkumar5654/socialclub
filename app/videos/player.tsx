@@ -1,61 +1,48 @@
 import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import {
-  ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
-  Play, Pause, Maximize, ArrowLeft, MoreVertical, Download
-} from 'lucide-react-native';
+import { ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown, Play, Pause, Maximize, ArrowLeft, MoreVertical, Download } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList,
-  TextInput, ActivityIndicator, Share, Modal, Pressable, StatusBar
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, FlatList, TextInput, ActivityIndicator, Share, Modal, Pressable, StatusBar, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { useAuth } from '@/contexts/AuthContext';
-
+import { useAuth } from '@/contexts/AuthAuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS ---
+// --- HELPERS (NULL-SAFE) ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
-// FIX: Null-Safe Views Formatting (The Crash Fix)
 const formatViews = (views: number | undefined | null) => {
-  const safeViews = Number(views) || 0; // Ensures it's always a number (0 if null/undefined)
+  const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
   if (safeViews >= 1000) return `${(safeViews / 1000).toFixed(1)}K`;
   return safeViews.toString();
 };
 
-// FIX: Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
     
-    const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
-    
-    if (h > 0) {
-        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
-// --- COMPONENTS ---
+// --- RECOMMENDED CARD ---
 
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  const channelName = video.channel_name || 'Channel';
-  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
+  // Use channel_name from recommended API (which we updated to contain final name)
+  const channelName = video.channel_name || video.user?.channel_name || 'Channel'; 
+  const channelAvatar = getMediaUrl(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
   
   return (
     <TouchableOpacity style={styles.recCard} onPress={onPress} activeOpacity={0.9}>
@@ -85,7 +72,6 @@ export default function VideoPlayerScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
-  const { user } = useAuth();
 
   // Player State
   const [isPlaying, setIsPlaying] = useState(true);
@@ -101,8 +87,6 @@ export default function VideoPlayerScreen() {
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
-  
-  // Comments Modal
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
 
@@ -112,25 +96,16 @@ export default function VideoPlayerScreen() {
     queryFn: () => api.videos.getDetails(videoId!),
     enabled: !!videoId
   });
-  const video = videoData?.video;
+  const video = videoData?.video; 
 
-  // 2. Fetch Recommended
-  const { data: recData } = useQuery({
-    queryKey: ['video-rec', videoId],
-    queryFn: () => api.videos.getRecommended(videoId!),
-    enabled: !!videoId
-  });
+  // 2. Fetch Recommended & Comments
+  const { data: recData } = useQuery({ queryKey: ['video-rec', videoId], queryFn: () => api.videos.getRecommended(videoId!), enabled: !!videoId });
+  const { data: commentsData, refetch: refetchComments } = useQuery({ queryKey: ['video-comments', videoId], queryFn: () => api.videos.getComments(videoId!, 1), enabled: !!videoId });
+  
   const recommended = recData?.videos || [];
-
-  // 3. Fetch Comments
-  const { data: commentsData, refetch: refetchComments } = useQuery({
-    queryKey: ['video-comments', videoId],
-    queryFn: () => api.videos.getComments(videoId!, 1),
-    enabled: !!videoId
-  });
   const comments = commentsData?.comments || [];
 
-  // 4. Watch Time Tracker (Viral Logic)
+  // Watch Time Tracker (Viral Logic)
   const trackVideoWatch = useCallback((watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       api.videos.trackWatch(videoId, watchedSec, totalDurationSec); 
@@ -143,7 +118,7 @@ export default function VideoPlayerScreen() {
       setLikesCount(video.likes || video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); // Set total duration in seconds
+      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
     }
   }, [video]);
 
@@ -154,7 +129,6 @@ export default function VideoPlayerScreen() {
     startTimeRef.current = Date.now();
     
     return () => {
-        // Track watch time on unmount/video change
         const endTime = Date.now();
         const watchedSec = (endTime - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
@@ -177,7 +151,7 @@ export default function VideoPlayerScreen() {
   });
 
   const subscribeMutation = useMutation({
-    mutationFn: () => isSubscribed ? api.channels.unsubscribe(video.channel_id) : api.channels.subscribe(video.channel_id),
+    mutationFn: () => isSubscribed ? api.channels.unsubscribe(video.channel.id) : api.channels.subscribe(video.channel.id),
     onSuccess: () => setIsSubscribed(!isSubscribed)
   });
 
@@ -213,9 +187,11 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url);
-  const channelName = video.channel_name || 'Channel Name';
-  const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
-  const subscriberCount = video.subscribers_count || 0;
+  
+  // Robust Channel Data Access (Guaranteed by PHP fallback)
+  const channelName = video.channel.name || 'Channel Name'; 
+  const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
+  const subscriberCount = video.channel.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
 
   return (
@@ -266,7 +242,7 @@ export default function VideoPlayerScreen() {
         </Pressable>
       </View>
 
-      {/* --- SCROLLABLE CONTENT --- */}
+      {/* SCROLLABLE CONTENT */}
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* 1. Title & Views */}
@@ -276,7 +252,7 @@ export default function VideoPlayerScreen() {
         </View>
 
         {/* 2. CHANNEL ROW */}
-        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel_id } })}>
+        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
             <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
                 <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
                 <View>
