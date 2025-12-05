@@ -2,7 +2,7 @@ import { Video as ExpoVideo, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
-  ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, Save, Trash2, Flag,
+  ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -16,18 +16,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-import { useAuth } from '@/contexts/AuthAuthContext'; 
+import { useAuth } from '@/contexts/AuthContext'; 
+import { getDeviceId } from '@/utils/deviceId'; 
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- HELPERS (NULL-SAFE) ---
+// --- HELPERS ---
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
+// FIX: Null-Safe Views Formatting (Handles the 'toString' crash)
 const formatViews = (views: number | undefined | null) => {
   const safeViews = Number(views) || 0;
   if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
@@ -35,6 +37,7 @@ const formatViews = (views: number | undefined | null) => {
   return safeViews.toString();
 };
 
+// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -45,6 +48,7 @@ const formatDuration = (seconds: any) => {
 };
 
 // --- RECOMMENDED CARD ---
+
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
@@ -70,7 +74,7 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL (Custom UI) ---
+// --- OPTIONS MENU MODAL ---
 function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -106,6 +110,7 @@ export default function VideoPlayerScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const videoRef = useRef<ExpoVideo>(null);
+  const { user } = useAuth();
 
   // Player State
   const [isPlaying, setIsPlaying] = useState(true);
@@ -125,7 +130,7 @@ export default function VideoPlayerScreen() {
   
   // Modals
   const [showComments, setShowComments] = useState(false);
-  const [showMenu, setShowMenu] = useState(false); // Menu State
+  const [showMenu, setShowMenu] = useState(false);
   const [commentText, setCommentText] = useState('');
 
   // 1. Fetch Video Details
@@ -143,20 +148,21 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (Viral Logic)
-  const trackVideoWatch = useCallback((watchedSec: number) => {
+  // Watch Time Tracker (Viral Logic) - FINAL IMPLEMENTATION
+  const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
-      api.videos.trackWatch(videoId, watchedSec, totalDurationSec); 
+      const deviceId = await getDeviceId(); // Assuming getDeviceId() is available
+      api.videos.trackWatch(videoId, watchedSec, totalDurationSec, deviceId); 
     }
   }, [videoId, totalDurationSec]);
 
   // Initialize State
   useEffect(() => {
     if (video) {
-      setLikesCount(video.likes || video.likes_count || 0);
+      setLikesCount(video.likes_count || 0);
       setIsLiked(!!video.isLiked);
       setIsSubscribed(!!video.isSubscribed);
-      setTotalDurationSec(Number(video.duration) || 0); // Set total duration in seconds
+      setTotalDurationSec(Number(video.duration) || 0); // Use DB duration (seconds)
     }
   }, [video]);
 
@@ -170,6 +176,11 @@ export default function VideoPlayerScreen() {
         const endTime = Date.now();
         const watchedSec = (endTime - startTimeRef.current) / 1000;
         trackVideoWatch(watchedSec);
+        
+        // CRITICAL: Unload video component on unmount to stop background audio
+        if (videoRef.current) {
+            videoRef.current.unloadAsync();
+        }
     };
   }, [videoId, totalDurationSec]);
 
@@ -188,7 +199,6 @@ export default function VideoPlayerScreen() {
     onSuccess: (data) => { 
         setIsLiked(data.isLiked); 
         setLikesCount(data.likes);
-        // Deslike Hatao
         if(data.isLiked && isDisliked) { setIsDisliked(false); }
     }
   });
@@ -197,11 +207,9 @@ export default function VideoPlayerScreen() {
     mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!),
     onSuccess: (data) => { 
         setIsDisliked(data.isDisliked); 
-        // Like Hatao
         if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); }
     }
   });
-
 
   const subscribeMutation = useMutation({
     mutationFn: () => isSubscribed ? api.channels.unsubscribe(video.channel.id) : api.channels.subscribe(video.channel.id),
@@ -214,7 +222,7 @@ export default function VideoPlayerScreen() {
   });
   
   const reportMutation = useMutation({
-      mutationFn: () => api.posts.report(videoId, 'Inappropriate'), // Using posts report for simplicity
+      mutationFn: () => api.posts.report(videoId, 'Inappropriate'),
       onSuccess: () => { Alert.alert('Reported', 'Thank you for reporting this video.'); }
   });
   
@@ -222,6 +230,7 @@ export default function VideoPlayerScreen() {
       mutationFn: () => api.posts.delete(videoId),
       onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.'); router.back(); }
   });
+
 
   // Handlers
   const togglePlayPause = async () => {
@@ -251,12 +260,12 @@ export default function VideoPlayerScreen() {
   }
 
   const videoUrl = getMediaUrl(video.video_url);
-  const channelName = video.channel.name || 'Channel Name';
+  
+  const channelName = video.channel.name || 'Channel Name'; 
   const channelAvatar = getMediaUrl(video.channel.avatar || 'assets/c_profile.jpg');
   const subscriberCount = video.channel.subscribers_count || 0;
   const viewsDisplay = formatViews(video.views_count);
-  const isOwner = video.user.id === user?.id;
-
+  const isOwner = video.user.id === user?.id; // Check ownership
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -337,11 +346,11 @@ export default function VideoPlayerScreen() {
         {/* 3. ACTIONS (LIKE/DISLIKE/SHARE/DOWNLOAD) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
             
-            {/* LIKE/DISLIKE PILL */}
+            {/* LIKE/DISLIKE PILL (FIXED LOGIC) */}
             <View style={styles.actionPill}>
                 <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
                     <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
-                    <Text style={[styles.actionText, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
+                    <Text style={[styles.actionTextLike, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
                 </TouchableOpacity>
 
                 <View style={styles.separator} />
@@ -364,7 +373,7 @@ export default function VideoPlayerScreen() {
                 <Share2 size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowMenu(true)}>
+            <TouchableOpacity style={styles.iconBtnRound} onPress={() => { setShowMenu(true) }}>
                 <MoreVertical size={20} color={Colors.text} />
             </TouchableOpacity>
         </ScrollView>
@@ -405,7 +414,9 @@ export default function VideoPlayerScreen() {
         </View>
       </ScrollView>
 
-      {/* --- COMMENTS MODAL --- */}
+      {/* --- MODALS (Comments & Description) --- */}
+      
+      {/* Comments Modal */}
       <Modal visible={showComments} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComments(false)}>
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
@@ -432,7 +443,7 @@ export default function VideoPlayerScreen() {
          </View>
       </Modal>
 
-      {/* --- DESCRIPTION MODAL --- */}
+      {/* Description Modal */}
       <Modal visible={showDescription} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDescription(false)}>
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
@@ -448,16 +459,17 @@ export default function VideoPlayerScreen() {
              </ScrollView>
          </View>
       </Modal>
-
+      
       {/* --- OPTIONS MENU MODAL (FINAL CUSTOM UI) --- */}
       <OptionsMenuModal 
         visible={showMenu}
         onClose={() => setShowMenu(false)}
-        isOwner={isOwner}
+        isOwner={video?.user?.id === user?.id}
         onDelete={() => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])}}
         onReport={() => { Alert.alert('Report', 'Please report through the website menu.', [{text:'OK'}]) }}
         onSave={() => { Alert.alert('Save', 'Video saved to your library!'); }}
       />
+
 
     </View>
   );
@@ -481,13 +493,12 @@ const styles = StyleSheet.create({
 
   // Content
   scrollContent: { flex: 1 },
-  infoSection: { padding: 12, paddingBottom: 12, borderBottomWidth: 1, borderColor: '#222' },
+  infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
   meta: { fontSize: 12, color: Colors.textSecondary },
   descTeaser: { flexDirection:'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8},
   descText: { fontSize: 13, color: Colors.text, flex: 1, marginRight: 10 },
   descTextFull: { fontSize: 14, color: Colors.text, lineHeight: 22 },
-
 
   // Actions Row (FIX 3)
   actionsScroll: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
@@ -513,6 +524,7 @@ const styles = StyleSheet.create({
       gap: 8,
   },
   actionText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  actionTextLike: { color: '#fff', fontSize: 14, fontWeight: '600' },
   separator: { width: 1, height: 18, backgroundColor: '#444' },
 
   iconBtnRound: {
