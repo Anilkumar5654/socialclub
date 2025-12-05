@@ -77,7 +77,7 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL (UI FIX 3: No Icons for Save/Report, Save Added) ---
+// --- OPTIONS MENU MODAL ---
 function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -128,6 +128,20 @@ export default function VideoPlayerScreen() {
   const [videoDuration, setVideoDuration] = useState(0); // In MS
   const [currentPosition, setCurrentPosition] = useState(0); // In MS
   const [totalDurationSec, setTotalDurationSec] = useState(0); // In Sec for API
+  
+  // <<< NEW STATE FOR FULLSCREEN >>>
+  const [isFullscreen, setIsFullscreen] = useState(false); 
+
+  // <<< NEW STATE FOR SEEKING (Duration Bar) >>>
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPosition, setSeekPosition] = useState(0); // In MS
+  const progressBarRef = useRef<View>(null);
+  const progressBarWidth = useRef(0);
+  
+  // <<< NEW REFS FOR DOUBLE TAP LOGIC >>>
+  const lastTapTime = useRef(0);
+  const tapArea = useRef<'left' | 'right' | null>(null);
+  
 
   // Logic State
   const startTimeRef = useRef<number>(Date.now());
@@ -215,12 +229,13 @@ export default function VideoPlayerScreen() {
 
   // Controls Auto-Hide
   useEffect(() => {
-    if (showControls && isPlaying) {
+    if (showControls && isPlaying && !isSeeking) { // Do not hide controls while seeking
       if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
       controlsTimeout.current = setTimeout(() => setShowControls(false), 3000);
     }
     return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
-  }, [showControls, isPlaying]);
+  }, [showControls, isPlaying, isSeeking]);
+
 
   // Mutations (Logic retained, Success messages updated to use Custom Toast)
   const likeMutation = useMutation({
@@ -275,7 +290,117 @@ export default function VideoPlayerScreen() {
   });
 
 
-  // Handlers
+  // --- NEW SEEKING LOGIC ---
+
+  // Seek Video by X seconds (used by double-tap)
+  const seekVideo = useCallback(async (amount: number) => {
+    if (!videoRef.current) return;
+    
+    // Calculate new position in milliseconds
+    const currentPosMillis = (await videoRef.current.getStatusAsync()).positionMillis || currentPosition;
+    const newPosition = currentPosMillis + amount * 1000;
+    const maxDuration = videoDuration;
+    
+    // Ensure new position is within bounds [0, maxDuration]
+    const finalPosition = Math.min(Math.max(0, newPosition), maxDuration);
+
+    try {
+      await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
+      setCurrentPosition(finalPosition); // Optimistic UI update
+    } catch (e) {
+      console.log('Seek failed:', e);
+    }
+  }, [currentPosition, videoDuration]);
+
+
+  // --- NEW SEEKING BAR LOGIC (Duration Bar) ---
+  const handleSeek = (x: number) => {
+      const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
+      const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
+      const newPositionMillis = videoDuration * newPositionPercentage;
+      setSeekPosition(newPositionMillis);
+  };
+
+  const handleSeekStart = (event: any) => {
+      setIsSeeking(true);
+      setSeekPosition(currentPosition); 
+      handleSeek(event.nativeEvent.locationX);
+      if(isPlaying && videoRef.current) { videoRef.current.pauseAsync(); }
+  };
+
+  const handleSeekMove = (event: any) => {
+      if (isSeeking) {
+          handleSeek(event.nativeEvent.locationX);
+      }
+  };
+
+  const handleSeekEnd = async () => {
+      if (videoRef.current) {
+          try {
+              await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
+              if (isPlaying) {
+                  await videoRef.current.playAsync();
+              }
+              setIsSeeking(false);
+              setSeekPosition(0);
+          } catch (e) {
+               console.log('Final seek failed:', e);
+               setIsSeeking(false);
+               setSeekPosition(0);
+          }
+      }
+  };
+
+  const handleLayout = (event: any) => {
+      // Capture the width of the progress bar background container
+      progressBarWidth.current = event.nativeEvent.layout.width;
+  };
+
+
+  // --- NEW DOUBLE TAP AND FULLSCREEN HANDLERS ---
+  
+  const handleDoubleTap = (event: any) => {
+    const now = Date.now();
+    const isDoubleTap = now - lastTapTime.current < 300; // 300ms window
+    
+    // Determine tap side
+    const tapX = event.nativeEvent.locationX;
+    const currentWidth = isFullscreen ? Dimensions.get('window').height : SCREEN_WIDTH; 
+    
+    const isLeft = tapX < currentWidth * 0.4;
+    const isRight = tapX > currentWidth * 0.6;
+    
+    if (isDoubleTap) {
+      if (isLeft) {
+        seekVideo(-10); // 10 seconds backward
+        showCustomToast('<< 10s');
+      } else if (isRight) {
+        seekVideo(10); // 10 seconds forward
+        showCustomToast('10s >>');
+      }
+      
+      // Prevent single-tap action (controls toggle) after double-tap
+      lastTapTime.current = 0; 
+      setShowControls(true); // Show controls briefly after seeking
+      return;
+    }
+    
+    lastTapTime.current = now;
+    
+    // Fallback to controls toggle if not a double tap (handleScreenTap logic)
+    if (Date.now() - lastTapTime.current > 300) {
+        setShowControls(!showControls);
+    }
+  };
+  
+  const toggleFullscreen = () => {
+    // Toggling local State to change UI/Layout.
+    setIsFullscreen(prev => !prev);
+    // Note: For actual screen rotation, you need 'expo-screen-orientation'
+  };
+
+
+  // Handlers (Simplified)
   const togglePlayPause = async () => {
     if (!videoRef.current) return;
     if (isPlaying) {
@@ -288,8 +413,6 @@ export default function VideoPlayerScreen() {
     }
   };
 
-  const handleScreenTap = () => setShowControls(!showControls);
-
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   
@@ -298,19 +421,6 @@ export default function VideoPlayerScreen() {
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
 
-  // <<< UI FIX 2: Fullscreen Rotation Logic (Replaced with Log/Toast for crash fix) >>>
-  const toggleFullscreen = () => {
-    const { width, height } = Dimensions.get('window');
-    
-    // CRASH FIX: Removed ScreenOrientation API calls.
-    // Placeholder to confirm button is working:
-    console.log(`Fullscreen button pressed. Current dimensions: W:${width}, H:${height}`);
-    
-    // Note: To achieve native rotation, you must install 'expo-screen-orientation' 
-    // and replace this console.log with the conditional lockAsync calls.
-    showCustomToast("Fullscreen action triggered."); 
-  };
-  
   // Handler with Custom Alert Confirmation
   const handleReport = () => {
        Alert.alert( // Using native Alert for CRITICAL CONFIRMATION step
@@ -347,13 +457,18 @@ export default function VideoPlayerScreen() {
   const viewsDisplay = formatViews(video.views_count);
   const isOwner = video.user.id === user?.id; 
 
+  // Determine the position to display (current position or temporary seek position)
+  const displayPosition = isSeeking ? seekPosition : currentPosition;
+  const progressPercentage = (displayPosition / (videoDuration || 1)) * 100;
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+    // Conditional styling based on fullScreen state
+    <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
+      <Stack.Screen options={{ headerShown: !isFullscreen }} />
+      <StatusBar barStyle="light-content" hidden={isFullscreen} />
 
       {/* PLAYER AREA */}
-      <View style={styles.playerContainer}>
+      <View style={isFullscreen ? styles.playerContainerFull : styles.playerContainer}>
         <ExpoVideo
           key={videoId} 
           ref={videoRef}
@@ -365,7 +480,10 @@ export default function VideoPlayerScreen() {
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
-                 setCurrentPosition(status.positionMillis);
+                 // CRITICAL: Only update currentPosition if we are NOT dragging/seeking
+                 if (!isSeeking) { 
+                     setCurrentPosition(status.positionMillis);
+                 }
                  if (status.didJustFinish) { setIsPlaying(false); setShowControls(true); trackVideoWatch(totalDurationSec); }
              }
           }}
@@ -374,11 +492,11 @@ export default function VideoPlayerScreen() {
         />
         
         {/* OVERLAY CONTROLS */}
-        <Pressable style={styles.overlay} onPress={handleScreenTap}>
+        <Pressable style={styles.overlay} onPress={handleDoubleTap}>
           {showControls && (
             <View style={styles.controls}>
               <View style={styles.topControlBar}>
-                 <TouchableOpacity onPress={() => router.back()}><ArrowLeft color="white" size={24} /></TouchableOpacity>
+                 <TouchableOpacity onPress={() => isFullscreen ? toggleFullscreen() : router.back()}><ArrowLeft color="white" size={24} /></TouchableOpacity>
               </View>
 
               <TouchableOpacity onPress={togglePlayPause} style={styles.playBtn}>
@@ -386,11 +504,22 @@ export default function VideoPlayerScreen() {
               </TouchableOpacity>
 
               <View style={styles.bottomControlBar}>
-                <Text style={styles.timeText}>{formatDuration(currentPosition/1000)} / {formatDuration(videoDuration/1000)}</Text>
-                <View style={styles.progressBarBg}>
-                   <View style={[styles.progressBarFill, { width: `${(currentPosition / (videoDuration || 1)) * 100}%` }]} />
-                </View>
-                {/* UI FIX 2: Fullscreen Button */}
+                <Text style={styles.timeText}>{formatDuration(displayPosition/1000)} / {formatDuration(videoDuration/1000)}</Text>
+                
+                {/* <<< SEEKING ENABLED PROGRESS BAR >>> */}
+                <Pressable
+                    ref={progressBarRef}
+                    style={styles.progressBarBg}
+                    onLayout={handleLayout} // Capture width
+                    onPressIn={handleSeekStart} // Start seeking/tapping
+                    onResponderMove={handleSeekMove} // Dragging
+                    onResponderRelease={handleSeekEnd} // End dragging/tap
+                >
+                    <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
+                </Pressable>
+                {/* <<< END SEEKING ENABLED PROGRESS BAR >>> */}
+                
+                {/* Fullscreen Button */}
                 <TouchableOpacity onPress={toggleFullscreen}>
                     <Maximize color="white" size={20} style={{marginLeft: 10}}/>
                 </TouchableOpacity>
@@ -400,110 +529,112 @@ export default function VideoPlayerScreen() {
         </Pressable>
       </View>
 
-      {/* SCROLLABLE CONTENT */}
-      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* 1. Title & Views */}
-        <View style={styles.infoSection}>
-            <Text style={styles.title}>{video.title}</Text>
-            <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
-        </View>
-
-        {/* 2. CHANNEL ROW */}
-        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
-            <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
-                <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
-                <View>
-                    <Text style={styles.channelName}>{channelName}</Text>
-                    <Text style={styles.subsText}>{formatViews(subscriberCount)} subscribers</Text>
-                </View>
+      {/* SCROLLABLE CONTENT - Hide when in fullscreen */}
+      {!isFullscreen && (
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            
+            {/* 1. Title & Views */}
+            <View style={styles.infoSection}>
+                <Text style={styles.title}>{video.title}</Text>
+                <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
             </View>
-            <TouchableOpacity 
-                style={[styles.subBtn, isSubscribed && styles.subBtnActive]} 
-                onPress={() => subscribeMutation.mutate()}
-            >
-                <Text style={[styles.subText, isSubscribed && styles.subTextActive]}>
-                    {isSubscribed ? 'Subscribed' : 'Subscribe'}
+
+            {/* 2. CHANNEL ROW */}
+            <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
+                <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
+                    <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
+                    <View>
+                        <Text style={styles.channelName}>{channelName}</Text>
+                        <Text style={styles.subsText}>{formatViews(subscriberCount)} subscribers</Text>
+                    </View>
+                </View>
+                <TouchableOpacity 
+                    style={[styles.subBtn, isSubscribed && styles.subBtnActive]} 
+                    onPress={() => subscribeMutation.mutate()}
+                >
+                    <Text style={[styles.subText, isSubscribed && styles.subTextActive]}>
+                        {isSubscribed ? 'Subscribed' : 'Subscribe'}
+                    </Text>
+                </TouchableOpacity>
+            </TouchableOpacity>
+
+            {/* 3. ACTIONS (UI FIX 3: Order Changed & Save Button Removed) */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
+                
+                {/* 1. LIKE/DISLIKE PILL */}
+                <View style={styles.actionPill}>
+                    <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
+                        <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
+                        <Text style={[styles.actionTextLike, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.separator} />
+
+                    <TouchableOpacity style={styles.dislikeBtn} onPress={handleDislike}>
+                        <ThumbsDown size={20} color={isDisliked ? Colors.primary : Colors.text} fill={isDisliked ? Colors.primary : "transparent"} />
+                    </TouchableOpacity>
+                </View>
+
+                {/* 2. Comment Button */}
+                <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowComments(true)}>
+                    <MessageCircle size={20} color={Colors.text} />
+                </TouchableOpacity>
+
+                {/* 3. Download Button */}
+                <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
+                    <Download size={20} color={Colors.text} />
+                </TouchableOpacity>
+
+                {/* 4. Share Button */}
+                <TouchableOpacity style={styles.iconBtnRound} onPress={handleShare}>
+                    <Share2 size={20} color={Colors.text} />
+                </TouchableOpacity>
+
+                {/* 5. Menu Button */}
+                <TouchableOpacity style={styles.iconBtnRound} onPress={() => { setShowMenu(true) }}>
+                    <MoreVertical size={20} color={Colors.text} />
+                </TouchableOpacity>
+            </ScrollView>
+
+            {/* 4. DESCRIPTION TEASER (NEW STYLED CARD) */}
+            <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
+                <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
+                    <Text style={styles.commentsHeader}>Description</Text>
+                    <ChevronDown size={18} color={Colors.textSecondary} />
+                </View>
+                <Text numberOfLines={2} style={styles.descTextCard}>
+                    {video.description || 'No description provided.'}
                 </Text>
             </TouchableOpacity>
-        </TouchableOpacity>
 
-        {/* 3. ACTIONS (UI FIX 3: Order Changed & Save Button Removed) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
-            
-            {/* 1. LIKE/DISLIKE PILL */}
-            <View style={styles.actionPill}>
-                <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
-                    <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
-                    <Text style={[styles.actionTextLike, isLiked && {color: Colors.primary}]}>{formatViews(likesCount)}</Text>
-                </TouchableOpacity>
-
-                <View style={styles.separator} />
-
-                <TouchableOpacity style={styles.dislikeBtn} onPress={handleDislike}>
-                    <ThumbsDown size={20} color={isDisliked ? Colors.primary : Colors.text} fill={isDisliked ? Colors.primary : "transparent"} />
-                </TouchableOpacity>
-            </View>
-
-            {/* 2. Comment Button */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowComments(true)}>
-                <MessageCircle size={20} color={Colors.text} />
-            </TouchableOpacity>
-
-            {/* 3. Download Button */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
-                <Download size={20} color={Colors.text} />
-            </TouchableOpacity>
-
-            {/* 4. Share Button */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={handleShare}>
-                <Share2 size={20} color={Colors.text} />
-            </TouchableOpacity>
-
-            {/* 5. Menu Button */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => { setShowMenu(true) }}>
-                <MoreVertical size={20} color={Colors.text} />
-            </TouchableOpacity>
-        </ScrollView>
-
-        {/* 4. DESCRIPTION TEASER (NEW STYLED CARD) */}
-        <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
-            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
-                <Text style={styles.commentsHeader}>Description</Text>
-                <ChevronDown size={18} color={Colors.textSecondary} />
-            </View>
-             <Text numberOfLines={2} style={styles.descTextCard}>
-                {video.description || 'No description provided.'}
-             </Text>
-        </TouchableOpacity>
-
-        {/* 5. COMMENTS TEASER */}
-        <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
-            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
-                <Text style={styles.commentsHeader}>Comments</Text>
-                <Text style={styles.commentsCount}>{comments.length}</Text>
-            </View>
-            {comments.length > 0 ? (
-                <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
-                    <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
-                    <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
+            {/* 5. COMMENTS TEASER */}
+            <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
+                <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
+                    <Text style={styles.commentsHeader}>Comments</Text>
+                    <Text style={styles.commentsCount}>{comments.length}</Text>
                 </View>
-            ) : (
-                <Text style={styles.commentsCount}>Add a public comment...</Text>
-            )}
-        </TouchableOpacity>
+                {comments.length > 0 ? (
+                    <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
+                        <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
+                        <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
+                    </View>
+                ) : (
+                    <Text style={styles.commentsCount}>Add a public comment...</Text>
+                )}
+            </TouchableOpacity>
 
-        {/* 6. RECOMMENDED VIDEOS */}
-        <View style={styles.recSection}>
-            {recommended.map((item: any) => (
-                <RecommendedVideoCard 
-                    key={item.id} 
-                    video={item} 
-                    onPress={() => router.replace({ pathname: '/videos/player', params: { videoId: item.id } })} 
-                />
-            ))}
-        </View>
-      </ScrollView>
+            {/* 6. RECOMMENDED VIDEOS */}
+            <View style={styles.recSection}>
+                {recommended.map((item: any) => (
+                    <RecommendedVideoCard 
+                        key={item.id} 
+                        video={item} 
+                        onPress={() => router.replace({ pathname: '/videos/player', params: { videoId: item.id } })} 
+                    />
+                ))}
+            </View>
+        </ScrollView>
+      )}
 
       {/* --- MODALS (Comments & Description) --- */}
       
@@ -587,6 +718,22 @@ const styles = StyleSheet.create({
   
   // Player
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#000' },
+  
+  // <<< NEW FULLSCREEN STYLE >>>
+  playerContainerFull: {
+    // Note: Dimensions.get('window') gives current screen dimensions.
+    // In a rotating app, this often needs to be handled by setting 
+    // width/height explicitly to swap based on orientation lock.
+    // Here we use the swap logic as a simple full screen placeholder.
+    width: Dimensions.get('window').width, 
+    height: Dimensions.get('window').height,
+    backgroundColor: '#000',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 10,
+  },
+  
   video: { width: '100%', height: '100%' },
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'space-between' },
@@ -594,9 +741,11 @@ const styles = StyleSheet.create({
   playBtn: { alignSelf: 'center' },
   bottomControlBar: { flexDirection: 'row', alignItems: 'center', padding: 10, paddingBottom: 10 },
   timeText: { color: '#fff', fontSize: 12, marginRight: 10, fontWeight: '600' },
-  progressBarBg: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2 },
-  progressBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
-
+  
+  // Progress Bar (Now a Pressable)
+  progressBarBg: { flex: 1, height: 20, justifyContent: 'center', backgroundColor: 'transparent' }, // Increased height for easy press
+  progressBarFill: { height: 3, backgroundColor: Colors.primary, borderRadius: 2 },
+  
   // Content
   scrollContent: { flex: 1 },
   infoSection: { padding: 12, paddingBottom: 0 },
