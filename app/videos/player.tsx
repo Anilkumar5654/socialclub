@@ -106,7 +106,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Passed to Controllers/Actions) ---
+  // --- HANDLERS (Defined here, passed to components) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -164,20 +164,24 @@ export default function VideoPlayerScreen() {
       if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
   };
 
-  // <<< CRITICAL FIX: FINAL SEEK JUMP >>>
+  // <<< CRITICAL FIX: FINAL SEEK JUMP AND ASYNC TIMING RESOLUTION >>>
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
               // 1. Commit the seek command to the player
               await videoRef.current.setStatusAsync({ 
                   positionMillis: seekPosition,
-                  shouldPlay: isPlaying // Preserve playback state
+                  shouldPlay: isPlaying 
               }); 
               
-              // 2. Update the main position state
-              setCurrentPosition(seekPosition);
+              // 2. Add a tiny delay to ensure the ExpoAV library processes the jump 
+              // before we force the UI state update.
+              await delay(50); // 50ms delay
               
-              // 3. Reset seeking mode
+              // 3. Update the main position state and reset seeking mode
+              setCurrentPosition(seekPosition);
               setIsSeeking(false);
               setSeekPosition(0); 
           } catch (e) {
