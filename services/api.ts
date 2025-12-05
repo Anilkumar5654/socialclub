@@ -232,7 +232,7 @@ class ApiClient {
     upload: async (formData: FormData) => this.request('/videos/upload', { method: 'POST', body: formData }),
     getDetails: async (id: string) => this.request<{ video: any }>(`/videos/details?id=${id}`),
 
-    // <<< NEW FUNCTIONS ADDED AS PER USER REQUEST >>>
+    // <<< USER REQUESTED FUNCTIONS >>>
     report: async (videoId: string, reason: string = 'Inappropriate', description?: string) => {
       return this.request('/videos/action/report.php', {
         method: 'POST',
