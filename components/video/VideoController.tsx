@@ -7,7 +7,6 @@ import Colors from '@/constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -74,7 +73,7 @@ export default function VideoController({
     const progressPercentage = (displayPosition / (videoDuration || 1)) * 100;
 
     return (
-        // OVERLAY CONTROLS CONTAINER (Handles single and double tap)
+        // OVERLAY CONTROLS CONTAINER
         <Pressable style={styles.overlay} onPress={handleDoubleTap}>
             
             {/* 2. SEEK FEEDBACK OVERLAY (YouTube Style) */}
@@ -164,7 +163,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   seekAmountText: {
-    color: '#fff',
+    color: 'white',
     fontSize: 24,
     fontWeight: '700',
     marginLeft: 5,
