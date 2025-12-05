@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import * as ScreenOrientation from 'expo-screen-orientation'; // Added for UI Fix 2
+// CRASH FIX: Removed import * as ScreenOrientation from 'expo-screen-orientation';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -102,7 +102,6 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
                     )}
 
                     {/* Cancel Option */}
-                    {/* Ensuring cancel is separated if Delete is present, or acts as the main separator if Delete is absent */}
                     <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={onClose}>
                         <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
                     </TouchableOpacity>
@@ -191,6 +190,7 @@ export default function VideoPlayerScreen() {
       // FIX: Explicitly ensure isPlaying is true and attempt to play (solves play issue)
       setIsPlaying(true); 
       if (videoRef.current) {
+          // Attempt to play explicitly when video data is loaded
           videoRef.current.playAsync().catch(e => console.log("Play command skipped or failed on load:", e));
       }
     }
@@ -298,17 +298,17 @@ export default function VideoPlayerScreen() {
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
 
-  // <<< UI FIX 2: Fullscreen Rotation Logic >>>
-  const toggleFullscreen = async () => {
-    if (Dimensions.get('window').height > Dimensions.get('window').width) {
-        // Current: Portrait -> Change to Landscape
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
-    } else {
-        // Current: Landscape -> Change to Portrait
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-    }
-    // We can show a small toast confirming action, instead of just logging
-    showCustomToast("Screen Orientation Changed"); 
+  // <<< UI FIX 2: Fullscreen Rotation Logic (Replaced with Log/Toast for crash fix) >>>
+  const toggleFullscreen = () => {
+    const { width, height } = Dimensions.get('window');
+    
+    // CRASH FIX: Removed ScreenOrientation API calls.
+    // Placeholder to confirm button is working:
+    console.log(`Fullscreen button pressed. Current dimensions: W:${width}, H:${height}`);
+    
+    // Note: To achieve native rotation, you must install 'expo-screen-orientation' 
+    // and replace this console.log with the conditional lockAsync calls.
+    showCustomToast("Fullscreen action triggered."); 
   };
   
   // Handler with Custom Alert Confirmation
@@ -460,8 +460,6 @@ export default function VideoPlayerScreen() {
                 <Share2 size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            {/* Save Button (REMOVED from here, moved to Menu) */}
-            
             {/* 5. Menu Button */}
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => { setShowMenu(true) }}>
                 <MoreVertical size={20} color={Colors.text} />
@@ -571,7 +569,7 @@ export default function VideoPlayerScreen() {
         onSave={handleSave} // Passed the Save handler
       />
       
-      {/* <<< UI FIX 1: CUSTOM TOAST COMPONENT >>> */}
+      {/* <<< UI FIX 1: CUSTOM TOAST COMPONENT (Displays custom alerts) >>> */}
       {showToast && (
            <View style={styles.customToast}>
                <Text style={styles.customToastText}>{toastMessage}</Text>
