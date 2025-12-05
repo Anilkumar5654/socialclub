@@ -4,7 +4,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ThumbsUp, ThumbsDown, Share2, MessageCircle, Send, ChevronDown,
   Play, Pause, Maximize, ArrowLeft, MoreVertical, Download, X,
-  // <<< CRITICAL FIX: ALL REQUIRED ICONS ADDED >>>
+  // CRITICAL: Ensure all used icons are imported
   Save, Flag, Trash2 
 } from 'lucide-react-native';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -28,7 +28,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const getMediaUrl = (path: string | undefined) => {
   if (!path) return '';
-  // ORIGNAL NULL-SAFE LOGIC RETAINED
   return path.startsWith('http') ? path : `${MEDIA_BASE_URL}/${path}`;
 };
 
@@ -52,7 +51,6 @@ const formatDuration = (seconds: any) => {
 
 // --- RECOMMENDED CARD ---
 const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => void }) => {
-  // RETAINING NULL-SAFE CHECKS
   const channelName = video.channel_name || 'Channel';
   const channelAvatar = getMediaUrl(video.channel_avatar || 'assets/c_profile.jpg');
   
@@ -131,7 +129,7 @@ export default function VideoPlayerScreen() {
   const [likesCount, setLikesCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   
-  // Modals (Using showDescription for consistency)
+  // Modals
   const [showDescription, setShowDescription] = useState(false); 
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -156,7 +154,6 @@ export default function VideoPlayerScreen() {
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       const deviceId = await getDeviceId(); 
-      // Null-safe calculation for completion rate
       const completionRate = Math.min(1, watchedSec / (totalDurationSec || 1)); 
       api.videos.trackWatch(videoId, watchedSec, completionRate); 
     }
@@ -242,7 +239,7 @@ export default function VideoPlayerScreen() {
       onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK'}]); router.back(); }
   });
 
-  // Save Mutation (Uses new api.videos.save)
+  // Save Mutation (Used by the round icon button)
   const saveMutation = useMutation({
       mutationFn: () => api.videos.save(videoId!),
       onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
@@ -457,7 +454,7 @@ export default function VideoPlayerScreen() {
 
       {/* --- MODALS (Comments & Description) --- */}
       
-      {/* Comments Modal */}
+      {/* Comments Modal (FIXED JSX SYNTAX ERROR HERE) */}
       <Modal visible={showComments} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComments(false)}>
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
@@ -471,7 +468,15 @@ export default function VideoPlayerScreen() {
                     <View style={styles.commentItem}>
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
-                            <Text style={styles.commentUser}>{item.user.username} · <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>{formatTimeAgo(item.created_at)}</Text></View>
+                            
+                            {/* FIX: Corrected missing closing </Text> tag */}
+                            <Text style={styles.commentUser}>
+                                {item.user.username} · 
+                                <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>
+                                    {formatTimeAgo(item.created_at)}
+                                </Text>
+                            </Text>
+                            
                             <Text style={styles.commentBody}>{item.content}</Text>
                         </View>
                     </View>
@@ -593,7 +598,7 @@ const styles = StyleSheet.create({
   // Recommended Cards
   recSection: { paddingBottom: 40 },
   recCard: { marginBottom: 16 },
-  recThumbContainer: { width: SCREEN_WIDTH, height: 220, backgroundColor: '#222' },
+  recThumbContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#222' },
   recThumb: { width: '100%', height: '100%' },
   recDuration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.8)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   recDurationText: { color: '#fff', fontSize: 12, fontWeight: '700' },
