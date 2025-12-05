@@ -68,7 +68,7 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
             {channelName} · {formatViews(video.views_count)} views · {formatTimeAgo(video.created_at)}
           </Text>
         </View>
-      </View>
+      </Image>
     </TouchableOpacity>
   );
 };
@@ -123,9 +123,6 @@ export default function VideoPlayerScreen() {
   const progressBarWidth = useRef(0);
   const lastTapTime = useRef(0);
   
-  // <<< SEEKING FIX: Track if video was playing before dragging >>>
-  const wasPlayingBeforeSeek = useRef(true); 
-  
   // Seek Feedback State
   const [showSeekIcon, setShowSeekIcon] = useState(false);
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
@@ -152,7 +149,7 @@ export default function VideoPlayerScreen() {
   };
 
 
-  // Data Fetching (Use existing logic)
+  // Data Fetching 
   const { data: videoData, isLoading } = useQuery({ queryKey: ['video-details', videoId], queryFn: () => api.videos.getDetails(videoId!), enabled: !!videoId });
   const { data: recData } = useQuery({ queryKey: ['video-rec', videoId], queryFn: () => api.videos.getRecommended(videoId!), enabled: !!videoId });
   const { data: commentsData, refetch: refetchComments } = useQuery({ queryKey: ['video-comments', videoId], queryFn: () => api.videos.getComments(videoId!, 1), enabled: !!videoId });
@@ -161,7 +158,7 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Watch Time Tracker (No Changes)
+  // Watch Time Tracker
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       const completionRate = Math.min(1, watchedSec / (totalDurationSec || 1)); 
@@ -169,7 +166,7 @@ export default function VideoPlayerScreen() {
     }
   }, [videoId, totalDurationSec]);
 
-  // Effects (No major logic changes, state initialization)
+  // Effects
   useEffect(() => {
     if (video) {
       setLikesCount(video.likes_count || 0);
@@ -177,6 +174,7 @@ export default function VideoPlayerScreen() {
       setIsSubscribed(!!video.isSubscribed);
       setTotalDurationSec(Number(video.duration) || 0);
       setIsPlaying(true); 
+      // Play immediately on load
       if (videoRef.current) { videoRef.current.playAsync().catch(e => console.log("Play command skipped or failed on load:", e)); }
     }
   }, [video]);
@@ -211,7 +209,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- SEEKING & CONTROL FIXES ---
+  // --- SEEKING & CONTROL FIXES (UPDATED FOR LIVE SEEKING) ---
 
   // Seek feedback display function
   const displaySeekFeedback = (direction: 'forward' | 'backward') => {
@@ -238,10 +236,12 @@ export default function VideoPlayerScreen() {
     try {
       await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
       setCurrentPosition(finalPosition); 
+      // Update seekPosition too so the bar stays at the new position if controls are active
+      if (showControls) setSeekPosition(finalPosition);
     } catch (e) {
       console.log('Seek failed:', e);
     }
-  }, [currentPosition, videoDuration]);
+  }, [currentPosition, videoDuration, showControls]);
 
 
   // SEEKING BAR LOGIC (Duration Bar)
@@ -252,20 +252,17 @@ export default function VideoPlayerScreen() {
       setSeekPosition(newPositionMillis);
   };
 
-  const handleSeekStart = async (event: any) => {
+  // 1. handleSeekStart: Remove pauseAsync() and keep video playing.
+  const handleSeekStart = (event: any) => { 
+      // Set initial seek position for preview (use current position)
+      const initialSeekPos = isSeeking ? seekPosition : currentPosition;
+      setSeekPosition(initialSeekPos);
+      
       setIsSeeking(true);
-      setSeekPosition(currentPosition); 
       handleSeek(event.nativeEvent.locationX);
       
-      // <<< FIX 1: Save the current playing status before pausing >>>
-      const status = await videoRef.current?.getStatusAsync();
-      wasPlayingBeforeSeek.current = status?.isPlaying || false; 
-
-      // Pause the video while seeking/dragging to ensure smooth seeking
-      if(videoRef.current) {
-          videoRef.current.pauseAsync();
-          setIsPlaying(false); // Update local state immediately
-      }
+      // *** FIX: REMOVED PAUSE LOGIC ***
+      // videoRef.current.pauseAsync(); is removed.
   };
 
   const handleSeekMove = (event: any) => {
@@ -274,24 +271,21 @@ export default function VideoPlayerScreen() {
       }
   };
 
+  // 2. handleSeekEnd: Only commit the seek, do not touch play/pause state.
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
               // Commit the final seek position
               await videoRef.current.setStatusAsync({ positionMillis: seekPosition });
               
-              // <<< FIX 2: Resume playing only if it was playing before drag started >>>
-              if (wasPlayingBeforeSeek.current) {
-                  await videoRef.current.playAsync();
-                  setIsPlaying(true); // Update state to Playing
-              } else {
-                  // If it was paused before dragging, keep it paused.
-                  setIsPlaying(false); // Update state to Paused
-              }
+              // *** FIX: REMOVED RESUME LOGIC ***
+              
+              // Update current position immediately so the bar doesn't jump back
+              setCurrentPosition(seekPosition);
               
               // Reset seeking state
               setIsSeeking(false);
-              setSeekPosition(0);
+              setSeekPosition(0); // Reset preview position
           } catch (e) {
                console.log('Final seek failed:', e);
                setIsSeeking(false);
@@ -378,8 +372,8 @@ export default function VideoPlayerScreen() {
   const viewsDisplay = formatViews(video.views_count);
   const isOwner = video.user.id === user?.id; 
 
-  // Position for Progress Bar
-  const displayPosition = isSeeking ? seekPosition : currentPosition;
+  // 3. Live Position for Progress Bar & Time
+  const displayPosition = isSeeking && seekPosition > 0 ? seekPosition : currentPosition;
   const progressPercentage = (displayPosition / (videoDuration || 1)) * 100;
 
   return (
@@ -410,6 +404,7 @@ export default function VideoPlayerScreen() {
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
+                 // Only update currentPosition if we are NOT seeking
                  if (!isSeeking) { 
                      setCurrentPosition(status.positionMillis);
                  }
@@ -447,7 +442,10 @@ export default function VideoPlayerScreen() {
               </TouchableOpacity>
 
               <View style={styles.bottomControlBar}>
-                <Text style={styles.timeText}>{formatDuration(displayPosition/1000)} / {formatDuration(videoDuration/1000)}</Text>
+                {/* 4. Live Duration Display */}
+                <Text style={styles.timeText}>
+                    {formatDuration(displayPosition/1000)} / {formatDuration(videoDuration/1000)}
+                </Text>
                 
                 {/* SEEKING ENABLED PROGRESS BAR */}
                 <Pressable
@@ -459,7 +457,10 @@ export default function VideoPlayerScreen() {
                     onResponderRelease={handleSeekEnd} 
                 >
                     <View style={styles.progressBarTrack} />
+                    {/* ProgressBar Fill tracks the live or current position */}
                     <View style={[styles.progressBarFill, { width: `${progressPercentage}%` }]} />
+                    {/* 5. Draggable Handle */}
+                    <View style={[styles.progressBarHandle, { left: `${progressPercentage}%` }]} />
                 </Pressable>
                 
                 {/* Fullscreen Button */}
@@ -501,7 +502,7 @@ export default function VideoPlayerScreen() {
                 </TouchableOpacity>
             </TouchableOpacity>
 
-            {/* 3. ACTIONS (UI FIX 3: Order Changed & Save Button Removed) */}
+            {/* 3. ACTIONS */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
                 
                 {/* 1. LIKE/DISLIKE PILL */}
@@ -675,7 +676,7 @@ const styles = StyleSheet.create({
   bottomControlBar: { flexDirection: 'row', alignItems: 'center', padding: 10, paddingBottom: 10 },
   timeText: { color: '#fff', fontSize: 12, marginRight: 10, fontWeight: '600' },
   
-  // <<< Seek Feedback Overlay Styles (Fix 2) >>>
+  // Seek Feedback Overlay Styles
   seekOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -696,10 +697,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: 5,
   },
-  // <<< End Seek Feedback Overlay Styles >>>
 
   // Progress Bar (Now a Pressable)
-  progressBarBg: { flex: 1, height: 20, justifyContent: 'center', backgroundColor: 'transparent' }, 
+  progressBarBg: { 
+      flex: 1, 
+      height: 20, 
+      justifyContent: 'center', 
+      backgroundColor: 'transparent' 
+  }, 
   progressBarTrack: { 
       position: 'absolute', 
       height: 3, 
@@ -712,6 +717,19 @@ const styles = StyleSheet.create({
       backgroundColor: Colors.primary, 
       borderRadius: 2 
   },
+  // <<< NEW: Draggable Handle Style >>>
+  progressBarHandle: {
+      position: 'absolute',
+      width: 12, 
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: Colors.primary,
+      // Center the handle on the progress bar track
+      top: 4, 
+      transform: [{ translateX: -6 }], // Half of the width to truly center
+      zIndex: 10,
+  },
+  // <<< END NEW STYLE >>>
   
   // Content
   scrollContent: { flex: 1 },
@@ -724,7 +742,7 @@ const styles = StyleSheet.create({
   descTextCard: { fontSize: 13, color: Colors.text, flex: 1, lineHeight: 18 },
   descTextFull: { fontSize: 14, color: Colors.text, lineHeight: 22 },
 
-  // Actions Row (FIXED ORDER)
+  // Actions Row 
   actionsScroll: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
   actionPill: { 
       flexDirection: 'row', 
