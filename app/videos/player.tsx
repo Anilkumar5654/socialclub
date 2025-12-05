@@ -67,6 +67,9 @@ export default function VideoPlayerScreen() {
   const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
+  // <<< CRITICAL SEEKING STATE (FOR PAUSE-JUMP-PLAY) >>>
+  const wasPlayingBeforeSeek = useRef(false); 
+  
 
   // Logic & UI State
   const [isLiked, setIsLiked] = useState(false);
@@ -106,7 +109,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Passed to Controllers/Actions) ---
+  // --- HANDLERS (Defined here, passed to components) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -152,32 +155,51 @@ export default function VideoPlayerScreen() {
       const newPositionMillis = videoDuration * newPositionPercentage;
       setSeekPosition(newPositionMillis);
   };
+  
+  // <<< PAUSE-JUMP-PLAY LOGIC START >>>
+  const handleSeekStart = async (event: any) => { 
+      if (!videoRef.current) return;
+      
+      // 1. Save the playback state and force pause
+      const status = await videoRef.current.getStatusAsync();
+      wasPlayingBeforeSeek.current = status?.isPlaying || false; 
 
-  const handleSeekStart = (event: any) => { 
+      if (videoRef.current) {
+          await videoRef.current.pauseAsync();
+          setIsPlaying(false);
+      }
+      
+      // 2. Enter seeking mode
       const initialSeekPos = isSeeking ? seekPosition : currentPosition;
       setSeekPosition(initialSeekPos);
       setIsSeeking(true);
       handleSeek(event.nativeEvent.locationX);
   };
 
+
   const handleSeekMove = (event: any) => {
       if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
   };
 
-  // <<< CRITICAL FIX: FINAL SEEK JUMP >>>
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
-              // 1. Commit the seek command to the player
+              // 1. Commit the seek command to the player (guaranteed jump)
               await videoRef.current.setStatusAsync({ 
                   positionMillis: seekPosition,
-                  shouldPlay: isPlaying // Preserve playback state
+                  shouldPlay: false // Must stay paused for precise jump
               }); 
               
-              // 2. Update the main position state
-              setCurrentPosition(seekPosition);
+              // 2. Resume playback only if it was playing before drag started
+              if (wasPlayingBeforeSeek.current) {
+                  await videoRef.current.playAsync();
+                  setIsPlaying(true);
+              } else {
+                  setIsPlaying(false);
+              }
               
-              // 3. Reset seeking mode
+              // 3. Update the main position state and reset seeking mode
+              setCurrentPosition(seekPosition);
               setIsSeeking(false);
               setSeekPosition(0); 
           } catch (e) {
@@ -187,7 +209,7 @@ export default function VideoPlayerScreen() {
           }
       }
   };
-  // <<< END CRITICAL FIX >>>
+  // <<< PAUSE-JUMP-PLAY LOGIC END >>>
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
