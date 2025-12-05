@@ -3,12 +3,10 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import Colors from '@/constants/colors'; // Adjusted Path
+import Colors from '@/constants/colors'; 
 
-// Get screen width for seeking calculation
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Correct Duration Format (seconds to MM:SS)
 const formatDuration = (seconds: any) => {
     const sec = Number(seconds) || 0;
     if (sec <= 0) return "00:00";
@@ -139,7 +137,7 @@ export default function VideoController({
 }
 
 
-// --- STYLES (Extracted from player.tsx) ---
+// --- STYLES ---
 
 const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
