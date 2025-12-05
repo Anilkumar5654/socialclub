@@ -25,12 +25,12 @@ import { api, MEDIA_BASE_URL } from '@/services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Filter Categories for Viral Logic
+// Filter Categories
 const VIDEO_FILTERS = [
   { id: 'all', label: 'All', icon: BarChart2 },
-  { id: 'trending', label: 'Trending', icon: TrendingUp }, // Sort by Viral Score High -> Low
-  { id: 'hot', label: 'Hot', icon: Flame }, // High Viral Score + Recent
-  { id: 'recent', label: 'Recent', icon: Clock }, // Created Date High -> Low
+  { id: 'trending', label: 'Trending', icon: TrendingUp },
+  { id: 'hot', label: 'Hot', icon: Flame },
+  { id: 'recent', label: 'Recent', icon: Clock },
 ];
 
 // Helper: Get Full URL
@@ -40,35 +40,34 @@ const getMediaUri = (uri: string | undefined) => {
 };
 
 // Helper: Format Views (e.g. 1.2M, 5K)
-const formatViews = (views: number) => {
-  if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
-  if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
-  return views.toString();
+const formatViews = (views: number | undefined | null) => {
+  const safeViews = Number(views) || 0; // FIX: Ensure views is a number for safety
+  if (safeViews >= 1000000) return `${(safeViews / 1000000).toFixed(1)}M`;
+  if (safeViews >= 1000) return `${(safeViews / 1000).toFixed(1)}K`;
+  return safeViews.toString();
 };
 
 // Helper: Format Duration (seconds to MM:SS)
 const formatDuration = (seconds: number) => {
-    if (!seconds) return "00:00";
+    if (!seconds || seconds <= 0) return "00:00";
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
     
     if (h > 0) {
-        return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
 // --- SINGLE VIDEO CARD COMPONENT ---
 const VideoCard = React.memo(({ video }: { video: any }) => {
   
   const handlePress = useCallback(() => {
-    // Navigate to Player
     router.push({ pathname: '/videos/player', params: { videoId: video.id } });
   }, [video.id]);
 
   const handleChannelPress = useCallback(() => {
-    // Navigate to Channel Profile
     if (video.channel_id) {
         router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel_id } });
     }
@@ -76,10 +75,10 @@ const VideoCard = React.memo(({ video }: { video: any }) => {
 
   // Data Handling (Channel Logic)
   const channelName = video.channel_name || video.user?.channel_name || 'Unknown Channel';
-  // Fallback to user avatar if channel avatar missing
   const channelAvatar = getMediaUri(video.channel_avatar || video.user?.avatar || 'assets/c_profile.jpg');
   const isVerified = !!(video.channel_verified || video.is_verified);
   const thumbnailUrl = getMediaUri(video.thumbnail_url);
+  const videoDuration = Number(video.duration) || 0;
 
   return (
     <TouchableOpacity 
@@ -96,10 +95,10 @@ const VideoCard = React.memo(({ video }: { video: any }) => {
           transition={200}
         />
         {/* Duration Badge */}
-        {!!video.duration && (
+        {videoDuration > 0 && (
           <View style={styles.durationBadge}>
             <Text style={styles.durationText}>
-                {formatDuration(video.duration)}
+                {formatDuration(videoDuration)}
             </Text>
           </View>
         )}
@@ -122,7 +121,7 @@ const VideoCard = React.memo(({ video }: { video: any }) => {
               {channelName}
               {isVerified ? ' ✓' : ''} 
               {' · '}
-              {formatViews(video.views_count || 0)} views
+              {formatViews(video.views_count)} views
               {' · '}
               {formatTimeAgo(video.created_at)}
             </Text>
@@ -147,7 +146,6 @@ export default function VideosScreen() {
   } = useQuery({
     queryKey: ['videos-feed'], 
     queryFn: async () => {
-      // Fetching default feed (Page 1, 20 items)
       const response = await api.videos.getVideos(1, 20); 
       return response;
     },
@@ -156,7 +154,6 @@ export default function VideosScreen() {
   const videos = videosData?.videos || [];
 
   // 2. Sorting Logic (Viral Strategy)
-  // Frontend sorting is fast for initial data. For heavy data, move sort to Backend API params.
   const displayVideos = useMemo(() => {
     if (!videos.length) return [];
     
@@ -166,15 +163,12 @@ export default function VideosScreen() {
        // STRATEGY: Highest Viral Score comes first
        sorted.sort((a, b) => (Number(b.viral_score) || 0) - (Number(a.viral_score) || 0));
     } else if (selectedFilter === 'hot') {
-       // STRATEGY: Recent + High Viral Score
-       // (Simplified: Just Viral Score > 10, then sorted by date)
-       sorted = sorted.filter(v => (Number(v.viral_score) || 0) > 10);
-       sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+       // STRATEGY: High Viral Score + Freshness (Simplistic: Viral Score)
+       sorted.sort((a, b) => (Number(b.viral_score) || 0) - (Number(a.viral_score) || 0));
     } else if (selectedFilter === 'recent') {
        // STRATEGY: Newest Uploads
        sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
-    // 'all' = Default API order
     
     return sorted;
   }, [videos, selectedFilter]);
