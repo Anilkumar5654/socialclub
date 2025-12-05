@@ -90,7 +90,7 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const errorMessage = (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}: ${response.statusText}`;
+        const errorMessage = (responseData && typeof responseData === 'object' && responseData.message) || `HTTP ${response.status}`;
         
         if (apiDebugLogger) {
           apiDebugLogger({
@@ -165,12 +165,7 @@ class ApiClient {
     getPost: async (id: string) => this.request<{ post: any }>(`/posts/details?id=${id}`),
     create: async (formData: FormData) => this.request('/posts/create', { method: 'POST', body: formData }),
     
-    delete: async (id: string) => {
-      return this.request(`/posts/action/delete.php?id=${id}`, { 
-        method: 'POST', 
-        body: JSON.stringify({ post_id: id }) 
-      });
-    },
+    delete: async (id: string) => this.request(`/posts/action/delete.php?id=${id}`, { method: 'POST', body: JSON.stringify({ post_id: id }) }),
     
     like: async (id: string) => this.request('/posts/action/like.php', { method: 'POST', body: JSON.stringify({ post_id: id }) }),
     unlike: async (id: string) => this.request('/posts/action/unlike.php', { method: 'POST', body: JSON.stringify({ post_id: id }) }),
@@ -210,7 +205,6 @@ class ApiClient {
     }
   };
 
-  // --- VIDEOS MODULE (FINAL) ---
   videos = {
     getVideos: async (page: number = 1, limit: number = 10, category?: string) => {
       const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
