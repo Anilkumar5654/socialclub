@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 // CRASH FIX: Removed import * as ScreenOrientation from 'expo-screen-orientation';
+// We only need Dimensions for the placeholder fullscreen logic.
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -298,16 +299,13 @@ export default function VideoPlayerScreen() {
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
 
-  // <<< UI FIX 2: Fullscreen Rotation Logic (Replaced with Log/Toast for crash fix) >>>
+  // <<< UI FIX 2: Fullscreen Rotation Logic (Crash-Safe) >>>
   const toggleFullscreen = () => {
     const { width, height } = Dimensions.get('window');
     
-    // CRASH FIX: Removed ScreenOrientation API calls.
-    // Placeholder to confirm button is working:
+    // Using simple console log/toast since Expo ScreenOrientation is not installed.
+    // If you install 'expo-screen-orientation', replace the content of this function.
     console.log(`Fullscreen button pressed. Current dimensions: W:${width}, H:${height}`);
-    
-    // Note: To achieve native rotation, you must install 'expo-screen-orientation' 
-    // and replace this console.log with the conditional lockAsync calls.
     showCustomToast("Fullscreen action triggered."); 
   };
   
@@ -333,9 +331,18 @@ export default function VideoPlayerScreen() {
       saveMutation.mutate();
   }
 
-  // Null Check
-  if (isLoading || !video || !video.channel) { 
-    return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={Colors.primary} /></View>;
+  // --- Null Check and Loading Logic ---
+  const showLoader = isLoading || !video || !video.channel;
+  
+  // UI FIX 4: Immediate Dark Screen/No Title During Loading
+  if (showLoader) { 
+    return (
+        <View style={[styles.container, styles.center]}>
+            {/* Hides header completely and uses current component's dark background for seamless transition */}
+            <Stack.Screen options={{ headerShown: false, title: '' }} />
+            <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+    );
   }
 
   const videoUrl = getMediaUrl(video.video_url);
@@ -349,7 +356,9 @@ export default function VideoPlayerScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <Stack.Screen options={{ headerShown: false }} />
+      
+      {/* Set Header Title ONLY when loaded */}
+      <Stack.Screen options={{ headerShown: true, title: video?.title || 'Video Player' }} />
       <StatusBar barStyle="light-content" backgroundColor="#000" />
 
       {/* PLAYER AREA */}
