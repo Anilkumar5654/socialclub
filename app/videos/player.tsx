@@ -14,12 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-// CRASH FIX: Removed import * as ScreenOrientation from 'expo-screen-orientation';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
 import { api, MEDIA_BASE_URL } from '@/services/api';
-// FIX: Using the correct original path to prevent bundling errors
+// FIX: Changed path back to the original format to resolve bundling error
 import { useAuth } from '@/contexts/AuthContext'; 
 import { getDeviceId } from '@/utils/deviceId'; 
 
@@ -77,21 +76,16 @@ const RecommendedVideoCard = ({ video, onPress }: { video: any; onPress: () => v
   );
 };
 
-// --- OPTIONS MENU MODAL (UI FIX 3: No Icons for Save/Report, Save Added) ---
-function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSave }: any) {
+// --- OPTIONS MENU MODAL (UPDATED LOGIC & PROPS) ---
+function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport }: any) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={onClose}>
                 <View style={styles.menuBox}>
                     
-                    {/* UI FIX: Save Video added back to menu, without icon */}
-                    <TouchableOpacity style={styles.menuItemNoIcon} onPress={() => { onClose(); onSave(); }}>
-                        <Text style={styles.menuText}>Save Video</Text>
-                    </TouchableOpacity>
-                    
-                    {/* UI FIX: Report Option without icon */}
-                    <TouchableOpacity style={styles.menuItemNoIcon} onPress={() => { onClose(); onReport(); }}>
-                        <Text style={styles.menuText}>Report</Text>
+                    {/* Report Option */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { onClose(); onReport(); }}>
+                        <Flag size={20} color={Colors.text} /><Text style={styles.menuText}>Report Video</Text>
                     </TouchableOpacity>
 
                     {/* Delete Option (Owner only) */}
@@ -102,7 +96,7 @@ function OptionsMenuModal({ visible, onClose, isOwner, onDelete, onReport, onSav
                     )}
 
                     {/* Cancel Option */}
-                    <TouchableOpacity style={[styles.menuItem, styles.menuItemDestructive]} onPress={onClose}>
+                    <TouchableOpacity style={[styles.menuItem, !isOwner && styles.menuItemDestructive]} onPress={onClose}>
                         <X size={20} color={Colors.textSecondary} /><Text style={styles.menuText}>Cancel</Text>
                     </TouchableOpacity>
                 </View>
@@ -142,19 +136,6 @@ export default function VideoPlayerScreen() {
   const [showMenu, setShowMenu] = useState(false);
   const [commentText, setCommentText] = useState('');
 
-  // <<< UI FIX 1: Custom Toast State >>>
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-
-  // Function to show custom toast (replacing most Alert.alert calls)
-  const showCustomToast = (message: string) => {
-    setToastMessage(message);
-    setShowToast(true);
-    // Hide after 3 seconds
-    setTimeout(() => setShowToast(false), 3000); 
-  };
-
-
   // 1. Fetch Video Details
   const { data: videoData, isLoading } = useQuery({
     queryKey: ['video-details', videoId],
@@ -187,7 +168,7 @@ export default function VideoPlayerScreen() {
       setIsSubscribed(!!video.isSubscribed);
       setTotalDurationSec(Number(video.duration) || 0);
       
-      // FIX: Explicitly ensure isPlaying is true and attempt to play (solves play issue)
+      // FIX 2: Explicitly ensure isPlaying is true and attempt to play
       setIsPlaying(true); 
       if (videoRef.current) {
           // Attempt to play explicitly when video data is loaded
@@ -222,7 +203,7 @@ export default function VideoPlayerScreen() {
     return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
   }, [showControls, isPlaying]);
 
-  // Mutations (Logic retained, Success messages updated to use Custom Toast)
+  // Mutations (Logic retained)
   const likeMutation = useMutation({
     mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!),
     onSuccess: (data) => { 
@@ -247,31 +228,29 @@ export default function VideoPlayerScreen() {
 
   const commentMutation = useMutation({
     mutationFn: (txt: string) => api.videos.comment(videoId!, txt),
-    onSuccess: () => { setCommentText(''); refetchComments(); showCustomToast('Comment posted!'); }
+    onSuccess: () => { setCommentText(''); refetchComments(); }
   });
   
-  // Report Mutation (Uses Custom Toast for Success)
+  // Report Mutation (Uses new api.videos.report)
   const reportMutation = useMutation({
       mutationFn: () => api.videos.report(videoId!, 'Inappropriate'),
       onSuccess: () => { 
-          showCustomToast('Thanks for reporting! We will review this video shortly.');
+          Alert.alert('Report Sent', 'Thank you for reporting this video. We will review it shortly.', [
+              {text:'OK', style: 'default'}
+          ]);
       }
   });
   
-  // Delete Mutation (Uses Custom Toast for Success)
+  // Delete Mutation (Uses new api.videos.delete)
   const deleteMutation = useMutation({
       mutationFn: () => api.videos.delete(videoId!),
-      onSuccess: () => { showCustomToast('Video has been successfully deleted.'); router.back(); }
+      onSuccess: () => { Alert.alert('Deleted', 'Video has been successfully deleted.', [{text:'OK'}]); router.back(); }
   });
 
   // Save Mutation (Used by the round icon button)
   const saveMutation = useMutation({
       mutationFn: () => api.videos.save(videoId!),
-      onSuccess: (data) => { 
-          // Assuming API returns data about save status
-          const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.';
-          showCustomToast(message);
-      }
+      onSuccess: () => { Alert.alert('Saved', 'Video added to your library!', [{text:'OK'}]); }
   });
 
 
@@ -298,22 +277,8 @@ export default function VideoPlayerScreen() {
     try { await Share.share({ message: `Check this video: https://moviedbr.com/video/${videoId}` }); } catch {}
   };
 
-  // <<< UI FIX 2: Fullscreen Rotation Logic (Replaced with Log/Toast for crash fix) >>>
-  const toggleFullscreen = () => {
-    const { width, height } = Dimensions.get('window');
-    
-    // CRASH FIX: Removed ScreenOrientation API calls.
-    // Placeholder to confirm button is working:
-    console.log(`Fullscreen button pressed. Current dimensions: W:${width}, H:${height}`);
-    
-    // Note: To achieve native rotation, you must install 'expo-screen-orientation' 
-    // and replace this console.log with the conditional lockAsync calls.
-    showCustomToast("Fullscreen action triggered."); 
-  };
-  
-  // Handler with Custom Alert Confirmation
   const handleReport = () => {
-       Alert.alert( // Using native Alert for CRITICAL CONFIRMATION step
+       Alert.alert(
           'Confirm Report',
           'Are you sure you want to report this video for inappropriate content?',
           [
@@ -323,15 +288,9 @@ export default function VideoPlayerScreen() {
       );
   };
   
-  // Handler with Custom Alert Confirmation
   const handleDelete = () => {
       Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }])
   };
-  
-  // Handler for Save in Menu
-  const handleSave = () => {
-      saveMutation.mutate();
-  }
 
   // Null Check
   if (isLoading || !video || !video.channel) { 
@@ -390,10 +349,7 @@ export default function VideoPlayerScreen() {
                 <View style={styles.progressBarBg}>
                    <View style={[styles.progressBarFill, { width: `${(currentPosition / (videoDuration || 1)) * 100}%` }]} />
                 </View>
-                {/* UI FIX 2: Fullscreen Button */}
-                <TouchableOpacity onPress={toggleFullscreen}>
-                    <Maximize color="white" size={20} style={{marginLeft: 10}}/>
-                </TouchableOpacity>
+                <Maximize color="white" size={20} style={{marginLeft: 10}}/>
               </View>
             </View>
           )}
@@ -428,10 +384,10 @@ export default function VideoPlayerScreen() {
             </TouchableOpacity>
         </TouchableOpacity>
 
-        {/* 3. ACTIONS (UI FIX 3: Order Changed & Save Button Removed) */}
+        {/* 3. ACTIONS (LIKE/DISLIKE/SHARE/DOWNLOAD) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsScroll}>
             
-            {/* 1. LIKE/DISLIKE PILL */}
+            {/* LIKE/DISLIKE PILL */}
             <View style={styles.actionPill}>
                 <TouchableOpacity style={styles.likeBtn} onPress={handleLike}>
                     <ThumbsUp size={20} color={isLiked ? Colors.primary : Colors.text} fill={isLiked ? Colors.primary : "transparent"} />
@@ -445,22 +401,23 @@ export default function VideoPlayerScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* 2. Comment Button */}
-            <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowComments(true)}>
-                <MessageCircle size={20} color={Colors.text} />
+            {/* OTHER BUTTONS (Round Icons) */}
+             <TouchableOpacity style={styles.iconBtnRound} onPress={() => { saveMutation.mutate() }}>
+                <Save size={20} color={Colors.text} />
             </TouchableOpacity>
-
-            {/* 3. Download Button */}
+            
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => {}}>
                 <Download size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            {/* 4. Share Button */}
+            <TouchableOpacity style={styles.iconBtnRound} onPress={() => setShowComments(true)}>
+                <MessageCircle size={20} color={Colors.text} />
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.iconBtnRound} onPress={handleShare}>
                 <Share2 size={20} color={Colors.text} />
             </TouchableOpacity>
 
-            {/* 5. Menu Button */}
             <TouchableOpacity style={styles.iconBtnRound} onPress={() => { setShowMenu(true) }}>
                 <MoreVertical size={20} color={Colors.text} />
             </TouchableOpacity>
@@ -507,7 +464,7 @@ export default function VideoPlayerScreen() {
 
       {/* --- MODALS (Comments & Description) --- */}
       
-      {/* Comments Modal (JSX SYNTAX ERROR FIXED) */}
+      {/* Comments Modal (FIXED JSX SYNTAX ERROR HERE) */}
       <Modal visible={showComments} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComments(false)}>
          <View style={styles.modalContainer}>
              <View style={styles.modalHeader}>
@@ -522,7 +479,7 @@ export default function VideoPlayerScreen() {
                         <Image source={{ uri: getMediaUrl(item.user.avatar) }} style={styles.commentAvatar} />
                         <View style={{flex:1}}>
                             
-                            {/* Corrected missing closing </Text> tag */}
+                            {/* FIX: Corrected missing closing </Text> tag */}
                             <Text style={styles.commentUser}>
                                 {item.user.username} · 
                                 <Text style={{fontWeight:'400', color:'#666', fontSize:12}}>
@@ -566,15 +523,7 @@ export default function VideoPlayerScreen() {
         isOwner={isOwner}
         onDelete={handleDelete}
         onReport={handleReport}
-        onSave={handleSave} // Passed the Save handler
       />
-      
-      {/* <<< UI FIX 1: CUSTOM TOAST COMPONENT (Displays custom alerts) >>> */}
-      {showToast && (
-           <View style={styles.customToast}>
-               <Text style={styles.customToastText}>{toastMessage}</Text>
-           </View>
-      )}
 
 
     </View>
@@ -608,7 +557,7 @@ const styles = StyleSheet.create({
   descTextCard: { fontSize: 13, color: Colors.text, flex: 1, lineHeight: 18 },
   descTextFull: { fontSize: 14, color: Colors.text, lineHeight: 22 },
 
-  // Actions Row (FIXED ORDER)
+  // Actions Row (FIX 3)
   actionsScroll: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
   actionPill: { 
       flexDirection: 'row', 
@@ -684,30 +633,6 @@ const styles = StyleSheet.create({
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'flex-end', flexDirection: 'row' },
   menuBox: { width: '100%', backgroundColor: '#1E1E1E', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 10, borderWidth: 1, borderColor: '#333' }, // Full width at bottom
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, gap: 16 },
-  menuItemNoIcon: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 12,
-      paddingHorizontal: 26, // Added padding to center text without icon
-      justifyContent: 'flex-start',
-  },
   menuItemDestructive: { borderTopWidth: 1, borderTopColor: '#333', marginTop: 5, paddingTop: 15 },
-  menuText: { color: Colors.text, fontSize: 16, fontWeight: '600' },
-  
-  // Custom Toast Styles
-  customToast: {
-    position: 'absolute',
-    bottom: 50, // Above navigation/input area
-    alignSelf: 'center',
-    backgroundColor: Colors.primary, // Pink/Theme color
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    zIndex: 9999,
-  },
-  customToastText: {
-    color: '#000', 
-    fontWeight: '600',
-    fontSize: 14,
-  },
+  menuText: { color: Colors.text, fontSize: 16, fontWeight: '600' }
 });
