@@ -1,5 +1,7 @@
-import { ArrowBigRight, ArrowBigLeft, Pause, Play, Maximize, ArrowLeft } from 'lucide-react-native';
-import React from 'react';
+// VideoController.tsx
+
+Import { ArrowBigRight, ArrowBigLeft, Pause, Play, Maximize, ArrowLeft } from 'lucide-react-native';
+import React, { memo } from 'react'; // ✅ CHANGE: Imported 'memo'
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -43,9 +45,9 @@ interface VideoControllerProps {
     progressBarRef: React.RefObject<View>;
 }
 
-// --- VIDEO CONTROLLER COMPONENT ---
+// --- VIDEO CONTROLLER COMPONENT (Now memoized) ---
 
-export default function VideoController({
+const VideoController = ({ // ✅ CHANGE: Component is now a regular function
     isPlaying,
     showControls,
     isFullscreen,
@@ -64,7 +66,7 @@ export default function VideoController({
     handleLayout,
     goBack,
     progressBarRef,
-}: VideoControllerProps) {
+}: VideoControllerProps) => { // ✅ CHANGE: And uses arrow function syntax
     
     const insets = useSafeAreaInsets();
     
@@ -96,6 +98,7 @@ export default function VideoController({
                     
                     {/* TOP CONTROL BAR (Back Button) */}
                     <View style={[styles.topControlBar, {paddingTop: isFullscreen ? insets.top : 10}]}>
+                       {/* If fullscreen, the back button handles orientation reset */}
                        <TouchableOpacity onPress={goBack}><ArrowLeft color="white" size={24} /></TouchableOpacity>
                     </View>
 
@@ -135,6 +138,8 @@ export default function VideoController({
         </Pressable>
     );
 }
+
+export default memo(VideoController); // ✅ FIX: Wrapped in React.memo for performance
 
 
 // --- STYLES ---
