@@ -68,6 +68,7 @@ export default function VideoPlayerScreen() {
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
   // <<< CRITICAL SEEKING STATE (FOR PAUSE-JUMP-PLAY) >>>
+  // This stores the true playback state before drag begins
   const wasPlayingBeforeSeek = useRef(false); 
   
 
