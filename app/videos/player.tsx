@@ -1,7 +1,10 @@
-import { Video as ExpoVideo, ResizeMode } from 'expo-av';
+// VideoPlayerScreen.tsx
+
+Import { Video as ExpoVideo, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { ChevronDown } from 'lucide-react-native';
+import * as ScreenOrientation from 'expo-screen-orientation'; // ✅ NEW: For better fullscreen handling
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions,
@@ -68,11 +71,12 @@ export default function VideoPlayerScreen() {
   const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
   
   // <<< CRITICAL SEEKING STATE (FOR PAUSE-JUMP-PLAY) >>>
-  // This stores the true playback state before drag begins
   const wasPlayingBeforeSeek = useRef(false); 
-  
+  // Watch Time Tracking
+  const watchTimeTracker = useRef({ startTime: Date.now(), totalWatched: 0 }); 
+  const watchTimeInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Logic & UI State
+  // Logic & UI State (Rest of the state remains same)
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
@@ -121,20 +125,21 @@ export default function VideoPlayerScreen() {
   const handleDelete = () => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }]); };
   const handleSave = () => { saveMutation.mutate(); }
   
-  // Seek feedback display function
+  // Seek feedback display function (CLEANUP ADDED)
   const displaySeekFeedback = (direction: 'forward' | 'backward') => {
       if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
       setSeekDirection(direction);
       setShowSeekIcon(true);
-      setTimeout(() => {
+      seekFeedbackTimeout.current = setTimeout(() => { // ✅ FIX: Assigning timeout to ref
           setShowSeekIcon(false);
+          seekFeedbackTimeout.current = null;
       }, 500);
   };
   
   // Seek Video by X seconds (used by double-tap)
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
-    
+    // ... logic remains same, handles position calculation and setStatusAsync
     const status = await videoRef.current.getStatusAsync();
     const currentPosMillis = status.positionMillis || currentPosition;
     const newPosition = currentPosMillis + amount * 1000;
@@ -143,7 +148,7 @@ export default function VideoPlayerScreen() {
 
     try {
       await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
-      setCurrentPosition(finalPosition); 
+      // We rely on onPlaybackStatusUpdate to set currentPosition
       if (showControls) setSeekPosition(finalPosition);
     } catch (e) { console.log('Seek failed:', e); }
   }, [currentPosition, videoDuration, showControls]);
@@ -157,11 +162,10 @@ export default function VideoPlayerScreen() {
       setSeekPosition(newPositionMillis);
   };
 
-  // <<< NEW PAUSE-JUMP-PLAY LOGIC START >>>
+  // <<< NEW PAUSE-JUMP-PLAY LOGIC START (FIXED) >>>
   const handleSeekStart = async (event: any) => { 
       if (!videoRef.current) return;
       
-      // 1. Save the playback state and force pause
       const status = await videoRef.current.getStatusAsync();
       wasPlayingBeforeSeek.current = status?.isPlaying || false; 
 
@@ -170,7 +174,6 @@ export default function VideoPlayerScreen() {
           setIsPlaying(false);
       }
       
-      // 2. Enter seeking mode
       const initialSeekPos = isSeeking ? seekPosition : currentPosition;
       setSeekPosition(initialSeekPos);
       setIsSeeking(true);
@@ -185,22 +188,19 @@ export default function VideoPlayerScreen() {
   const handleSeekEnd = async () => {
       if (videoRef.current) {
           try {
-              // 1. Commit the seek command to the player (guaranteed jump)
+              // 1. Commit the seek command to the player
               await videoRef.current.setStatusAsync({ 
                   positionMillis: seekPosition,
-                  shouldPlay: false // Must stay paused for precise jump
+                  shouldPlay: wasPlayingBeforeSeek.current // Set final play state directly
               }); 
               
-              // 2. Resume playback only if it was playing before drag started
-              if (wasPlayingBeforeSeek.current) {
-                  await videoRef.current.playAsync();
-                  setIsPlaying(true);
-              } else {
-                  setIsPlaying(false);
-              }
+              // 2. Set UI state based on the committed play state
+              setIsPlaying(wasPlayingBeforeSeek.current);
               
-              // 3. Update the main position state and reset seeking mode
-              setCurrentPosition(seekPosition);
+              // ❌ FIX: Removed setCurrentPosition(seekPosition); 
+              // We now rely ONLY on onPlaybackStatusUpdate for true currentPosition.
+              
+              // 3. Reset seeking mode
               setIsSeeking(false);
               setSeekPosition(0); 
           } catch (e) {
@@ -215,7 +215,7 @@ export default function VideoPlayerScreen() {
 
   const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
 
-  // DOUBLE TAP LOGIC
+  // DOUBLE TAP LOGIC (IMPROVED CONTROL TOGGLE)
   const handleDoubleTap = (event: any) => {
     const now = Date.now();
     const isDoubleTap = now - lastTapTime.current < 300; 
@@ -232,12 +232,31 @@ export default function VideoPlayerScreen() {
       return;
     }
     lastTapTime.current = now;
+    // Single tap now just toggles controls (logic remains same)
     setTimeout(() => {
-        if (Date.now() - lastTapTime.current >= 300) { setShowControls(!showControls); }
+        if (Date.now() - lastTapTime.current >= 300) { setShowControls(prev => !prev); }
     }, 300);
   };
   
-  const toggleFullscreen = () => { setIsFullscreen(prev => !prev); };
+  // ORIENTATION CHANGE LOGIC (For true fullscreen)
+  const setOrientation = async (orientation: ScreenOrientation.Orientation) => {
+      try {
+          await ScreenOrientation.lockAsync(orientation);
+      } catch (e) {
+          console.log("Orientation lock failed:", e);
+      }
+  };
+
+  const toggleFullscreen = () => { 
+      setIsFullscreen(prev => {
+          if (!prev) {
+              setOrientation(ScreenOrientation.Orientation.LANDSCAPE_LEFT);
+          } else {
+              setOrientation(ScreenOrientation.Orientation.PORTRAIT_UP);
+          }
+          return !prev;
+      });
+  };
   
   const goBack = () => {
       if (isFullscreen) { toggleFullscreen(); } 
@@ -250,23 +269,50 @@ export default function VideoPlayerScreen() {
     else { await videoRef.current.playAsync(); setIsPlaying(true); }
   };
   
+  // Watch Time Tracking (Robust)
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
       const completionRate = Math.min(1, watchedSec / (totalDurationSec || 1)); 
       getDeviceId().then(deviceId => {
         api.videos.trackWatch(videoId, watchedSec, completionRate);
+        console.log(`Tracked watch time: ${watchedSec}s. Completion: ${completionRate.toFixed(2)}`);
       });
     }
   }, [videoId, totalDurationSec]);
 
-  // Effects and Watch Time Cleanup (Existing Logic)
+  // INTERVAL SETUP
   useEffect(() => {
-    if (video) { /* ... initialization logic ... */ }
-  }, [video]);
+    if (video) {
+        setTotalDurationSec((video.duration_sec || 0));
+        watchTimeTracker.current.startTime = Date.now();
+        
+        // Start tracking interval every 10 seconds
+        watchTimeInterval.current = setInterval(() => {
+            if (isPlaying) {
+                const now = Date.now();
+                const elapsedSec = (now - watchTimeTracker.current.startTime) / 1000;
+                watchTimeTracker.current.totalWatched += elapsedSec;
+                trackVideoWatch(watchTimeTracker.current.totalWatched);
+                watchTimeTracker.current.startTime = now; 
+            }
+        }, 10000); // Report every 10s
+    }
 
-  useEffect(() => {
-    // ... Cleanup logic (simplified for brevity) ...
-  }, [videoId, totalDurationSec]);
+    // MEMORY LEAK CLEANUP
+    return () => {
+        // 1. Clear intervals/timeouts
+        if (watchTimeInterval.current) clearInterval(watchTimeInterval.current);
+        if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
+
+        // 2. Report final watch time before component unmounts
+        if (watchTimeTracker.current.totalWatched > 0) {
+            trackVideoWatch(watchTimeTracker.current.totalWatched);
+        }
+        
+        // 3. Reset orientation lock
+        ScreenOrientation.lockAsync(ScreenOrientation.Orientation.PORTRAIT_UP);
+    };
+  }, [videoId, video, isPlaying, trackVideoWatch]);
 
 
   // Null Check
@@ -299,7 +345,8 @@ export default function VideoPlayerScreen() {
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.video}
-          resizeMode={ResizeMode.CONTAIN}
+          // RESIZE MODE CHANGE: Changed to COVER for better fullscreen experience
+          resizeMode={isFullscreen ? ResizeMode.COVER : ResizeMode.CONTAIN} 
           shouldPlay={isPlaying}
           useNativeControls={false}
           
@@ -310,12 +357,21 @@ export default function VideoPlayerScreen() {
           onPlaybackStatusUpdate={status => {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
-                 if (!isSeeking) { 
+                 
+                 // ✅ FIX: Only update position if NOT seeking. 
+                 // This prevents the UI from fighting the user drag/seek logic.
+                 if (!isSeeking && status.isLoaded) { 
                      setCurrentPosition(status.positionMillis);
                  }
+                 
                  if (status.didJustFinish) { 
                     setIsPlaying(false); 
                     setShowControls(true); 
+                 }
+                 
+                 // Pause/Play state update for watch tracker
+                 if (status.isPlaying !== isPlaying) {
+                    setIsPlaying(status.isPlaying);
                  }
              }
           }}
@@ -349,14 +405,12 @@ export default function VideoPlayerScreen() {
       {/* SCROLLABLE CONTENT - Hide when in fullscreen */}
       {!isFullscreen && (
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            
-            {/* 1. Title & Views */}
+            {/* ... Rest of the UI remains the same ... */}
             <View style={styles.infoSection}>
                 <Text style={styles.title}>{video.title}</Text>
                 <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
             </View>
 
-            {/* 2. CHANNEL ROW */}
             <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
                 <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
                     <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
@@ -375,7 +429,6 @@ export default function VideoPlayerScreen() {
                 </TouchableOpacity>
             </TouchableOpacity>
 
-            {/* 3. VIDEO ACTIONS ROW (Extracted Component) */}
             <VideoActions 
                 likesCount={likesCount}
                 isLiked={isLiked}
@@ -387,7 +440,6 @@ export default function VideoPlayerScreen() {
                 setShowMenu={setShowMenu}
             />
 
-            {/* 4. DESCRIPTION TEASER */}
             <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
                 <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
                     <Text style={styles.commentsHeader}>Description</Text>
@@ -398,7 +450,6 @@ export default function VideoPlayerScreen() {
                 </Text>
             </TouchableOpacity>
 
-            {/* 5. COMMENTS TEASER */}
             <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
                 <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
                     <Text style={styles.commentsHeader}>Comments</Text>
@@ -414,7 +465,6 @@ export default function VideoPlayerScreen() {
                 )}
             </TouchableOpacity>
 
-            {/* 6. RECOMMENDED VIDEOS (Extracted Component) */}
             <RecommendedVideos recommended={recommended} />
         </ScrollView>
       )}
@@ -460,18 +510,19 @@ const styles = StyleSheet.create({
   // Player
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#000' },
   playerContainerFull: {
-    width: Dimensions.get('window').width, 
-    height: Dimensions.get('window').height,
+    width: Dimensions.get('window').height, // ✅ CHANGE: Height/Width swap for landscape 
+    height: Dimensions.get('window').width,
     backgroundColor: '#000',
     position: 'absolute',
     top: 0,
     left: 0,
     zIndex: 10,
+    // Add transform for rotation if needed based on expo-screen-orientation setup
   },
   
   video: { width: '100%', height: '100%' },
   
-  // Content
+  // Content (Rest of the styles remain same)
   scrollContent: { flex: 1 },
   infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
