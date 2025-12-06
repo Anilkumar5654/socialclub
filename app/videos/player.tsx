@@ -1,10 +1,10 @@
 // VideoPlayerScreen.tsx
 
-Import { Video as ExpoVideo, ResizeMode } from 'expo-av';
+import { Video as ExpoVideo, ResizeMode } from 'expo-av'; // ✅ FIX: 'Import' changed to 'import'
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { ChevronDown } from 'lucide-react-native';
-import * as ScreenOrientation from 'expo-screen-orientation'; // ✅ NEW: For better fullscreen handling
+import * as ScreenOrientation from 'expo-screen-orientation';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions,
@@ -76,7 +76,7 @@ export default function VideoPlayerScreen() {
   const watchTimeTracker = useRef({ startTime: Date.now(), totalWatched: 0 }); 
   const watchTimeInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Logic & UI State (Rest of the state remains same)
+  // Logic & UI State
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
@@ -139,7 +139,7 @@ export default function VideoPlayerScreen() {
   // Seek Video by X seconds (used by double-tap)
   const seekVideo = useCallback(async (amount: number) => {
     if (!videoRef.current) return;
-    // ... logic remains same, handles position calculation and setStatusAsync
+    
     const status = await videoRef.current.getStatusAsync();
     const currentPosMillis = status.positionMillis || currentPosition;
     const newPosition = currentPosMillis + amount * 1000;
@@ -197,7 +197,7 @@ export default function VideoPlayerScreen() {
               // 2. Set UI state based on the committed play state
               setIsPlaying(wasPlayingBeforeSeek.current);
               
-              // ❌ FIX: Removed setCurrentPosition(seekPosition); 
+              // ✅ FIX: Removed setCurrentPosition(seekPosition); 
               // We now rely ONLY on onPlaybackStatusUpdate for true currentPosition.
               
               // 3. Reset seeking mode
@@ -280,7 +280,7 @@ export default function VideoPlayerScreen() {
     }
   }, [videoId, totalDurationSec]);
 
-  // INTERVAL SETUP
+  // INTERVAL SETUP & CLEANUP
   useEffect(() => {
     if (video) {
         setTotalDurationSec((video.duration_sec || 0));
@@ -298,18 +298,15 @@ export default function VideoPlayerScreen() {
         }, 10000); // Report every 10s
     }
 
-    // MEMORY LEAK CLEANUP
+    // ✅ MEMORY LEAK CLEANUP: Clear intervals/timers and reset orientation
     return () => {
-        // 1. Clear intervals/timeouts
         if (watchTimeInterval.current) clearInterval(watchTimeInterval.current);
         if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
 
-        // 2. Report final watch time before component unmounts
         if (watchTimeTracker.current.totalWatched > 0) {
             trackVideoWatch(watchTimeTracker.current.totalWatched);
         }
         
-        // 3. Reset orientation lock
         ScreenOrientation.lockAsync(ScreenOrientation.Orientation.PORTRAIT_UP);
     };
   }, [videoId, video, isPlaying, trackVideoWatch]);
@@ -405,12 +402,14 @@ export default function VideoPlayerScreen() {
       {/* SCROLLABLE CONTENT - Hide when in fullscreen */}
       {!isFullscreen && (
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* ... Rest of the UI remains the same ... */}
+            
+            {/* 1. Title & Views */}
             <View style={styles.infoSection}>
                 <Text style={styles.title}>{video.title}</Text>
                 <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
             </View>
 
+            {/* 2. CHANNEL ROW */}
             <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
                 <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
                     <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
@@ -429,6 +428,7 @@ export default function VideoPlayerScreen() {
                 </TouchableOpacity>
             </TouchableOpacity>
 
+            {/* 3. VIDEO ACTIONS ROW (Extracted Component) */}
             <VideoActions 
                 likesCount={likesCount}
                 isLiked={isLiked}
@@ -440,6 +440,7 @@ export default function VideoPlayerScreen() {
                 setShowMenu={setShowMenu}
             />
 
+            {/* 4. DESCRIPTION TEASER */}
             <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
                 <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
                     <Text style={styles.commentsHeader}>Description</Text>
@@ -450,6 +451,7 @@ export default function VideoPlayerScreen() {
                 </Text>
             </TouchableOpacity>
 
+            {/* 5. COMMENTS TEASER */}
             <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
                 <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
                     <Text style={styles.commentsHeader}>Comments</Text>
@@ -465,6 +467,7 @@ export default function VideoPlayerScreen() {
                 )}
             </TouchableOpacity>
 
+            {/* 6. RECOMMENDED VIDEOS (Extracted Component) */}
             <RecommendedVideos recommended={recommended} />
         </ScrollView>
       )}
@@ -510,19 +513,18 @@ const styles = StyleSheet.create({
   // Player
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#000' },
   playerContainerFull: {
-    width: Dimensions.get('window').height, // ✅ CHANGE: Height/Width swap for landscape 
+    width: Dimensions.get('window').height, // Correct dimension for landscape
     height: Dimensions.get('window').width,
     backgroundColor: '#000',
     position: 'absolute',
     top: 0,
     left: 0,
     zIndex: 10,
-    // Add transform for rotation if needed based on expo-screen-orientation setup
   },
   
   video: { width: '100%', height: '100%' },
   
-  // Content (Rest of the styles remain same)
+  // Content
   scrollContent: { flex: 1 },
   infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
