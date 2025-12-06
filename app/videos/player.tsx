@@ -4,14 +4,13 @@ import { Video as ExpoVideo, ResizeMode } from 'expo-av';
 import { Image } from 'expo-image';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { ChevronDown } from 'lucide-react-native';
-// REMOVED: import * as ScreenOrientation from 'expo-screen-orientation';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions,
   ActivityIndicator, Share, StatusBar, Alert
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useQuery, useMutation } from '@tanstack/react-query'; // Library imports kept (as they are core to data flow)
+import { useQuery, useMutation } from '@tanstack/react-query';
 
 import Colors from '@/constants/colors';
 import { formatTimeAgo } from '@/constants/timeFormat';
@@ -19,8 +18,7 @@ import { api, MEDIA_BASE_URL } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext'; 
 import { getDeviceId } from '@/utils/deviceId'; 
 
-// <<< ALL EXTERNAL COMPONENTS IMPORTED SAFELY >>>
-import VideoController from '@/components/video/VideoController'; 
+// REMOVED: import VideoController from '@/components/video/VideoController'; 
 import VideoActions from '@/components/video/VideoActions'; 
 import VideoModals from '@/components/video/VideoModals'; 
 import RecommendedVideos from '@/components/video/RecommendedVideos'; 
@@ -50,33 +48,19 @@ export default function VideoPlayerScreen() {
   const videoRef = useRef<ExpoVideo>(null);
   const { user } = useAuth();
 
-  // Player State
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [showControls, setShowControls] = useState(true);
+  // Player State (Minimized - only what's absolutely needed)
   const [videoDuration, setVideoDuration] = useState(0); 
-  const [currentPosition, setCurrentPosition] = useState(0); 
   const [totalDurationSec, setTotalDurationSec] = useState(0); 
+  // Video will always attempt to play (isPlaying assumed true)
+  const isPlaying = true; 
   
-  // Fullscreen & Seeking State
-  const [isFullscreen, setIsFullscreen] = useState(false); 
-  const [isSeeking, setIsSeeking] = useState(false);
-  const [seekPosition, setSeekPosition] = useState(0); 
-  const progressBarRef = useRef<View>(null);
-  const progressBarWidth = useRef(0);
-  const lastTapTime = useRef(0);
+  // Controls/Seeking States REMOVED: isPlaying, showControls, isFullscreen, isSeeking, seekPosition, etc.
   
-  // Seek Feedback State
-  const [showSeekIcon, setShowSeekIcon] = useState(false);
-  const [seekDirection, setSeekDirection] = useState<'forward' | 'backward'>('forward');
-  const seekFeedbackTimeout = useRef<NodeJS.Timeout | null>(null);
-  
-  // <<< CRITICAL SEEKING STATE (FOR PAUSE-JUMP-PLAY) >>>
-  const wasPlayingBeforeSeek = useRef(false); 
-  // Watch Time Tracking
+  // Watch Time Tracking (Minimal)
   const watchTimeTracker = useRef({ startTime: Date.now(), totalWatched: 0 }); 
   const watchTimeInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Logic & UI State
+  // Content/Action Logic States (Kept as they are not playback controls)
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
@@ -94,8 +78,7 @@ export default function VideoPlayerScreen() {
     setTimeout(() => setShowToast(false), 3000); 
   };
 
-
-  // Data Fetching 
+  // Data Fetching (Kept)
   const { data: videoData, isLoading } = useQuery({ queryKey: ['video-details', videoId], queryFn: () => api.videos.getDetails(videoId!), enabled: !!videoId });
   const { data: recData } = useQuery({ queryKey: ['video-rec', videoId], queryFn: () => api.videos.getRecommended(videoId!), enabled: !!videoId });
   const { data: commentsData, refetch: refetchComments } = useQuery({ queryKey: ['video-comments', videoId], queryFn: () => api.videos.getComments(videoId!, 1), enabled: !!videoId });
@@ -104,7 +87,7 @@ export default function VideoPlayerScreen() {
   const recommended = recData?.videos || [];
   const comments = commentsData?.comments || [];
 
-  // Mutations (No Change)
+  // Mutations (Kept)
   const likeMutation = useMutation({ mutationFn: () => isLiked ? api.videos.unlike(videoId!) : api.videos.like(videoId!), onSuccess: (data) => { setIsLiked(data.isLiked); setLikesCount(data.likes); if(data.isLiked && isDisliked) { setIsDisliked(false); } }});
   const dislikeMutation = useMutation({ mutationFn: () => isDisliked ? api.videos.undislike(videoId!) : api.videos.dislike(videoId!), onSuccess: (data) => { setIsDisliked(data.isDisliked); if(data.isDisliked && isLiked) { setIsLiked(false); setLikesCount(prev => Math.max(0, prev - 1)); } }});
   const subscribeMutation = useMutation({ mutationFn: () => api.channels[isSubscribed ? 'unsubscribe' : 'subscribe'](video?.channel?.id!), onSuccess: () => setIsSubscribed(!isSubscribed) });
@@ -114,7 +97,7 @@ export default function VideoPlayerScreen() {
   const saveMutation = useMutation({ mutationFn: () => api.videos.save(videoId!), onSuccess: (data) => { const message = data.isSaved ? 'Video saved to your library!' : 'Video removed from library.'; showCustomToast(message); } });
 
 
-  // --- HANDLERS (Passed to Controllers/Actions) ---
+  // --- HANDLERS (Only Content Actions Kept) ---
   const handleLike = () => { likeMutation.mutate(); };
   const handleDislike = () => { dislikeMutation.mutate(); }; 
   const handleShare = async () => {
@@ -125,131 +108,11 @@ export default function VideoPlayerScreen() {
   const handleDelete = () => { Alert.alert('Delete', 'Are you sure you want to delete this video?', [{text:'Cancel'}, {text:'Delete', style:'destructive', onPress:()=> deleteMutation.mutate() }]); };
   const handleSave = () => { saveMutation.mutate(); }
   
-  // Seek feedback display function
-  const displaySeekFeedback = (direction: 'forward' | 'backward') => {
-      if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
-      setSeekDirection(direction);
-      setShowSeekIcon(true);
-      seekFeedbackTimeout.current = setTimeout(() => {
-          setShowSeekIcon(false);
-          seekFeedbackTimeout.current = null;
-      }, 500);
-  };
-  
-  // Seek Video by X seconds (used by double-tap)
-  const seekVideo = useCallback(async (amount: number) => {
-    if (!videoRef.current) return;
-    
-    const status = await videoRef.current.getStatusAsync();
-    const currentPosMillis = status.positionMillis || currentPosition;
-    const newPosition = currentPosMillis + amount * 1000;
-    const maxDuration = videoDuration;
-    const finalPosition = Math.min(Math.max(0, newPosition), maxDuration);
+  // Playback control handlers REMOVED: seekVideo, handleSeekStart, handleSeekEnd, etc.
 
-    try {
-      await videoRef.current.setStatusAsync({ positionMillis: finalPosition });
-      if (showControls) setSeekPosition(finalPosition);
-    } catch (e) { console.log('Seek failed:', e); }
-  }, [currentPosition, videoDuration, showControls]);
+  // Simplified Navigation
+  const goBack = () => { router.back(); }; 
 
-
-  // SEEKING BAR LOGIC 
-  const handleSeek = (x: number) => {
-      const barWidth = progressBarWidth.current || SCREEN_WIDTH; 
-      const newPositionPercentage = Math.min(1, Math.max(0, x / barWidth));
-      const newPositionMillis = videoDuration * newPositionPercentage;
-      setSeekPosition(newPositionMillis);
-  };
-
-  // <<< FIXED PAUSE-JUMP-PLAY LOGIC >>>
-  const handleSeekStart = async (event: any) => { 
-      if (!videoRef.current) return;
-      
-      const status = await videoRef.current.getStatusAsync();
-      wasPlayingBeforeSeek.current = status?.isPlaying || false; 
-
-      if (videoRef.current) {
-          await videoRef.current.pauseAsync();
-          setIsPlaying(false);
-      }
-      
-      const initialSeekPos = isSeeking ? seekPosition : currentPosition;
-      setSeekPosition(initialSeekPos);
-      setIsSeeking(true);
-      handleSeek(event.nativeEvent.locationX);
-  };
-
-
-  const handleSeekMove = (event: any) => {
-      if (isSeeking) { handleSeek(event.nativeEvent.locationX); }
-  };
-
-  const handleSeekEnd = async () => {
-      if (videoRef.current) {
-          try {
-              // 1. Commit the seek command to the player
-              await videoRef.current.setStatusAsync({ 
-                  positionMillis: seekPosition,
-                  shouldPlay: wasPlayingBeforeSeek.current // Set final play state directly
-              }); 
-              
-              // 2. Set UI state based on the committed play state
-              setIsPlaying(wasPlayingBeforeSeek.current);
-              
-              // 3. Reset seeking mode
-              setIsSeeking(false);
-              setSeekPosition(0); 
-          } catch (e) {
-               console.log('Final seek failed:', e);
-               setIsSeeking(false);
-               setSeekPosition(0);
-          }
-      }
-  };
-
-
-  const handleLayout = (event: any) => { progressBarWidth.current = event.nativeEvent.layout.width; };
-
-  // DOUBLE TAP LOGIC 
-  const handleDoubleTap = (event: any) => {
-    const now = Date.now();
-    const isDoubleTap = now - lastTapTime.current < 300; 
-    const tapX = event.nativeEvent.locationX;
-    const currentWidth = isFullscreen ? Dimensions.get('window').width : SCREEN_WIDTH; 
-    const isLeft = tapX < currentWidth * 0.4;
-    const isRight = tapX > currentWidth * 0.6;
-    
-    if (isDoubleTap) {
-      if (isLeft) { seekVideo(-10); displaySeekFeedback('backward'); } 
-      else if (isRight) { seekVideo(10); displaySeekFeedback('forward'); }
-      lastTapTime.current = 0; 
-      setShowControls(true); 
-      return;
-    }
-    lastTapTime.current = now;
-    // Single tap now just toggles controls (logic remains same)
-    setTimeout(() => {
-        if (Date.now() - lastTapTime.current >= 300) { setShowControls(prev => !prev); }
-    }, 300);
-  };
-  
-  // Custom Fullscreen Toggle (No Orientation Lock)
-  const toggleFullscreen = () => { 
-      setIsFullscreen(prev => !prev); 
-      // Note: Fullscreen here only changes styling, not device orientation lock.
-  };
-  
-  const goBack = () => {
-      if (isFullscreen) { toggleFullscreen(); } 
-      else { router.back(); }
-  };
-
-  const togglePlayPause = async () => {
-    if (!videoRef.current) return;
-    if (isPlaying) { await videoRef.current.pauseAsync(); setIsPlaying(false); setShowControls(true); } 
-    else { await videoRef.current.playAsync(); setIsPlaying(true); }
-  };
-  
   // Watch Time Tracking (Robust)
   const trackVideoWatch = useCallback(async (watchedSec: number) => {
     if (videoId && watchedSec > 1) {
@@ -268,26 +131,24 @@ export default function VideoPlayerScreen() {
         
         // Start tracking interval every 10 seconds
         watchTimeInterval.current = setInterval(() => {
-            if (isPlaying) {
-                const now = Date.now();
-                const elapsedSec = (now - watchTimeTracker.current.startTime) / 1000;
-                watchTimeTracker.current.totalWatched += elapsedSec;
-                trackVideoWatch(watchTimeTracker.current.totalWatched);
-                watchTimeTracker.current.startTime = now; 
-            }
+            // isPlaying is always true, so it always tracks.
+            const now = Date.now();
+            const elapsedSec = (now - watchTimeTracker.current.startTime) / 1000;
+            watchTimeTracker.current.totalWatched += elapsedSec;
+            trackVideoWatch(watchTimeTracker.current.totalWatched);
+            watchTimeTracker.current.startTime = now; 
         }, 10000); // Report every 10s
     }
 
-    // MEMORY LEAK CLEANUP: Clear intervals/timers
+    // MEMORY LEAK CLEANUP: Clear interval
     return () => {
         if (watchTimeInterval.current) clearInterval(watchTimeInterval.current);
-        if (seekFeedbackTimeout.current) clearTimeout(seekFeedbackTimeout.current);
 
         if (watchTimeTracker.current.totalWatched > 0) {
             trackVideoWatch(watchTimeTracker.current.totalWatched);
         }
     };
-  }, [videoId, video, isPlaying, trackVideoWatch]);
+  }, [videoId, video, trackVideoWatch]);
 
 
   // Null Check
@@ -305,25 +166,28 @@ export default function VideoPlayerScreen() {
   const viewsDisplay = formatViews(video.views_count);
   const isOwner = video.user.id === user?.id; 
 
+  // NOTE: isFullscreen state is REMOVED, so we only use the standard container style.
+  const isFullscreen = false;
+
 
   return (
-    <View style={[styles.container, { paddingTop: isFullscreen ? 0 : insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       
       <Stack.Screen options={{ headerShown: false }} /> 
       
-      <StatusBar barStyle="light-content" hidden={isFullscreen} />
+      <StatusBar barStyle="light-content" />
 
-      {/* PLAYER AREA */}
-      <View style={isFullscreen ? styles.playerContainerFull : styles.playerContainer}>
+      {/* PLAYER AREA - NO CONTROLS OVERLAY */}
+      <View style={styles.playerContainer}>
         <ExpoVideo
           key={videoId} 
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={styles.video}
-          // RESIZE MODE: CONTAINER is safer for pure style-based fullscreen
-          resizeMode={isFullscreen ? ResizeMode.COVER : ResizeMode.CONTAIN} 
-          shouldPlay={isPlaying}
-          useNativeControls={false}
+          // The video will fill the container, but controls are disabled
+          resizeMode={ResizeMode.CONTAIN} 
+          shouldPlay={true} // Always try to play
+          useNativeControls={false} // Custom control layer is now empty
           
           usePoster={true} 
           posterSource={{ uri: thumbnailUrl }}
@@ -333,121 +197,88 @@ export default function VideoPlayerScreen() {
              if (status.isLoaded) {
                  setVideoDuration(status.durationMillis || 0);
                  
-                 // FIX: Only update position if NOT seeking.
-                 if (!isSeeking && status.isLoaded) { 
-                     setCurrentPosition(status.positionMillis);
-                 }
-                 
                  if (status.didJustFinish) { 
-                    setIsPlaying(false); 
-                    setShowControls(true); 
-                 }
-                 
-                 // Pause/Play state update
-                 if (status.isPlaying !== isPlaying) {
-                    setIsPlaying(status.isPlaying);
+                    // Video finished, can't play again without controls, so just stops.
                  }
              }
           }}
           onError={(e) => console.log('CRITICAL EXPO VIDEO ERROR:', e)}
         />
         
-        {/* RENDER THE SEPARATE VIDEO CONTROLLER COMPONENT */}
-        <VideoController 
-            isPlaying={isPlaying}
-            showControls={showControls}
-            isFullscreen={isFullscreen}
-            isSeeking={isSeeking}
-            currentPosition={currentPosition}
-            videoDuration={videoDuration}
-            seekPosition={seekPosition}
-            showSeekIcon={showSeekIcon}
-            seekDirection={seekDirection}
-            togglePlayPause={togglePlayPause}
-            toggleFullscreen={toggleFullscreen}
-            handleDoubleTap={handleDoubleTap}
-            handleSeekStart={handleSeekStart}
-            handleSeekMove={handleSeekMove}
-            handleSeekEnd={handleSeekEnd}
-            handleLayout={handleLayout}
-            goBack={goBack}
-            progressBarRef={progressBarRef}
-        />
+        {/* VIDEO CONTROLLER COMPONENT RENDER REMOVED */}
         
       </View>
 
-      {/* SCROLLABLE CONTENT - Hide when in fullscreen */}
-      {!isFullscreen && (
-          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            
-            {/* 1. Title & Views */}
-            <View style={styles.infoSection}>
-                <Text style={styles.title}>{video.title}</Text>
-                <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
+      {/* SCROLLABLE CONTENT */}
+      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {/* 1. Title & Views */}
+        <View style={styles.infoSection}>
+            <Text style={styles.title}>{video.title}</Text>
+            <Text style={styles.meta}>{viewsDisplay} views · {formatTimeAgo(video.created_at)}</Text>
+        </View>
+
+        {/* 2. CHANNEL ROW */}
+        <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
+            <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
+                <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
+                <View>
+                    <Text style={styles.channelName}>{channelName}</Text>
+                    <Text style={styles.subsText}>{formatViews(subscriberCount)} subscribers</Text>
+                </View>
             </View>
-
-            {/* 2. CHANNEL ROW */}
-            <TouchableOpacity style={styles.channelRow} onPress={() => router.push({ pathname: '/channel/[channelId]', params: { channelId: video.channel.id } })}>
-                <View style={{flexDirection:'row', alignItems:'center', flex:1}}>
-                    <Image source={{ uri: channelAvatar }} style={styles.channelAvatar} />
-                    <View>
-                        <Text style={styles.channelName}>{channelName}</Text>
-                        <Text style={styles.subsText}>{formatViews(subscriberCount)} subscribers</Text>
-                    </View>
-                </View>
-                <TouchableOpacity 
-                    style={[styles.subBtn, isSubscribed && styles.subBtnActive]} 
-                    onPress={() => subscribeMutation.mutate()}
-                >
-                    <Text style={[styles.subText, isSubscribed && styles.subTextActive]}>
-                        {isSubscribed ? 'Subscribed' : 'Subscribe'}
-                    </Text>
-                </TouchableOpacity>
-            </TouchableOpacity>
-
-            {/* 3. VIDEO ACTIONS ROW (Extracted Component) */}
-            <VideoActions 
-                likesCount={likesCount}
-                isLiked={isLiked}
-                isDisliked={isDisliked}
-                handleLike={handleLike}
-                handleDislike={handleDislike}
-                handleShare={handleShare}
-                setShowComments={setShowComments}
-                setShowMenu={setShowMenu}
-            />
-
-            {/* 4. DESCRIPTION TEASER */}
-            <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
-                <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
-                    <Text style={styles.commentsHeader}>Description</Text>
-                    <ChevronDown size={18} color={Colors.textSecondary} />
-                </View>
-                <Text numberOfLines={2} style={styles.descTextCard}>
-                    {video.description || 'No description provided.'}
+            <TouchableOpacity 
+                style={[styles.subBtn, isSubscribed && styles.subBtnActive]} 
+                onPress={() => subscribeMutation.mutate()}
+            >
+                <Text style={[styles.subText, isSubscribed && styles.subTextActive]}>
+                    {isSubscribed ? 'Subscribed' : 'Subscribe'}
                 </Text>
             </TouchableOpacity>
+        </TouchableOpacity>
 
-            {/* 5. COMMENTS TEASER */}
-            <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
-                <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
-                    <Text style={styles.commentsHeader}>Comments</Text>
-                    <Text style={styles.commentsCount}>{comments.length}</Text>
+        {/* 3. VIDEO ACTIONS ROW (Extracted Component) */}
+        <VideoActions 
+            likesCount={likesCount}
+            isLiked={isLiked}
+            isDisliked={isDisliked}
+            handleLike={handleLike}
+            handleDislike={handleDislike}
+            handleShare={handleShare}
+            setShowComments={setShowComments}
+            setShowMenu={setShowMenu}
+        />
+
+        {/* 4. DESCRIPTION TEASER */}
+        <TouchableOpacity style={styles.descContainerCard} onPress={() => setShowDescription(true)}>
+            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:4}}>
+                <Text style={styles.commentsHeader}>Description</Text>
+                <ChevronDown size={18} color={Colors.textSecondary} />
+            </View>
+            <Text numberOfLines={2} style={styles.descTextCard}>
+                {video.description || 'No description provided.'}
+            </Text>
+        </TouchableOpacity>
+
+        {/* 5. COMMENTS TEASER */}
+        <TouchableOpacity style={styles.commentsTeaser} onPress={() => setShowComments(true)}>
+            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:8}}>
+                <Text style={styles.commentsHeader}>Comments</Text>
+                <Text style={styles.commentsCount}>{comments.length}</Text>
+            </View>
+            {comments.length > 0 ? (
+                <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
+                    <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
+                    <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
                 </View>
-                {comments.length > 0 ? (
-                    <View style={{flexDirection:'row', alignItems:'center', gap:10}}>
-                        <Image source={{ uri: getMediaUrl(comments[0].user.avatar) }} style={{width:24, height:24, borderRadius:12}} />
-                        <Text numberOfLines={1} style={{color:Colors.text, fontSize:13, flex:1}}>{comments[0].content}</Text>
-                    </View>
-                ) : (
-                    <Text style={styles.commentsCount}>Add a public comment...</Text>
-                )}
-            </TouchableOpacity>
+            ) : (
+                <Text style={styles.commentsCount}>Add a public comment...</Text>
+            )}
+        </TouchableOpacity>
 
-            {/* 6. RECOMMENDED VIDEOS (Extracted Component) */}
-            <RecommendedVideos recommended={recommended} />
-        </ScrollView>
-      )}
+        {/* 6. RECOMMENDED VIDEOS (Extracted Component) */}
+        <RecommendedVideos recommended={recommended} />
+      </ScrollView>
 
       {/* --- RENDER MODALS (Extracted Component) --- */}
       <VideoModals 
@@ -489,20 +320,11 @@ const styles = StyleSheet.create({
   
   // Player
   playerContainer: { width: SCREEN_WIDTH, aspectRatio: 16/9, backgroundColor: '#000' },
-  playerContainerFull: {
-    // Only style-based full screen
-    width: Dimensions.get('window').width, 
-    height: Dimensions.get('window').height,
-    backgroundColor: '#000',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    zIndex: 10,
-  },
+  // playerContainerFull style REMOVED
   
   video: { width: '100%', height: '100%' },
   
-  // Content (Rest of the styles remain same)
+  // Content
   scrollContent: { flex: 1 },
   infoSection: { padding: 12, paddingBottom: 0 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, lineHeight: 24 },
